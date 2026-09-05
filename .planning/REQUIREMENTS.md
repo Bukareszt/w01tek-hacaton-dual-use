@@ -99,9 +99,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Agent
 
-- [ ] **AGT-01**: A single RAI conversational (ReAct) agent exposes the
-  velocity, stop, navigate, image and state tools and routes free text to
-  the right tool
+- [ ] **AGT-01**: A single RAI conversational (ReAct) agent with a tool
+  registry that later phases populate (velocity, stop, navigate, image,
+  state) routes free text to the right registered tool
 - [ ] **AGT-02**: Multi-step instructions ("go to the chair, then tell me what
   is there") execute as the correct tool sequence; a scripted prompt set
   with expected tool traces validates this in sim
@@ -158,35 +158,43 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | — | Pending |
-| FOUND-02 | — | Pending |
-| FOUND-03 | — | Pending |
-| FOUND-04 | — | Pending |
-| FOUND-05 | — | Pending |
-| FOUND-06 | — | Pending |
-| FOUND-07 | — | Pending |
-| EMB-01 | — | Pending |
-| EMB-02 | — | Pending |
-| HRI-01 | — | Pending |
-| HRI-02 | — | Pending |
-| HRI-03 | — | Pending |
-| HRI-04 | — | Pending |
-| MOT-01 | — | Pending |
-| MOT-02 | — | Pending |
-| MOT-03 | — | Pending |
-| NAV-01 | — | Pending |
-| NAV-02 | — | Pending |
-| VIS-01 | — | Pending |
-| VIS-02 | — | Pending |
-| AGT-01 | — | Pending |
-| AGT-02 | — | Pending |
-| AGT-03 | — | Pending |
+| FOUND-01 | Phase 1 | Pending |
+| FOUND-02 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Pending |
+| FOUND-05 | Phase 2 | Pending |
+| FOUND-06 | Phase 1 | Pending |
+| FOUND-07 | Phase 1 | Pending |
+| EMB-01 | Phase 2 | Pending |
+| EMB-02 | Phase 2 | Pending |
+| HRI-01 | Phase 2 | Pending |
+| HRI-02 | Phase 2 | Pending |
+| HRI-03 | Phase 2 | Pending |
+| HRI-04 | Phase 2 | Pending |
+| MOT-01 | Phase 3 | Pending |
+| MOT-02 | Phase 3 | Pending |
+| MOT-03 | Phase 3 | Pending |
+| NAV-01 | Phase 5 | Pending |
+| NAV-02 | Phase 5 | Pending |
+| VIS-01 | Phase 4 | Pending |
+| VIS-02 | Phase 4 | Pending |
+| AGT-01 | Phase 2 | Pending |
+| AGT-02 | Phase 5 | Pending |
+| AGT-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23 ⚠️
+- Mapped to phases: 23 ✓
+- Unmapped: 0
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| Phase 1 — Isolated RAI Environment | FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-06, FOUND-07 | 6 |
+| Phase 2 — Wojtek Talks | FOUND-05, EMB-01, EMB-02, HRI-01, HRI-02, HRI-03, HRI-04, AGT-01 | 8 |
+| Phase 3 — Safe Walking | MOT-01, MOT-02, MOT-03 | 3 |
+| Phase 4 — Seeing and Self-Report | VIS-01, VIS-02 | 2 |
+| Phase 5 — Goal Navigation and Multi-Step Missions | NAV-01, NAV-02, AGT-02, AGT-03 | 4 |
 
 ---
 *Requirements defined: 2026-09-05*
-*Last updated: 2026-09-05 after initial definition*
+*Last updated: 2026-09-05 after roadmap creation (traceability mapped)*
