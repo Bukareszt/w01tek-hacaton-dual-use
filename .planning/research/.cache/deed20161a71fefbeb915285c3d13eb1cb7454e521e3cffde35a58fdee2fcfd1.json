@@ -1,0 +1,1 @@
+{"content":"RAI's latest GitHub-tagged release is 2.12.0 (langchain 1.x line, published 2026-04-13); PyPI has a further 2.12.1 patch (2026-06-09) with no matching git tag. Recommend pinning rai-core==2.12.0 for a reproducible source-traceable pin.","source":"web","provider":"websearch","confidence":"LOW","fetched_at":"2026-09-05T10:32:40.953Z","ttl":86400000,"kind":"web"}
