@@ -14,25 +14,31 @@ Requirements for initial release. Each maps to roadmap phases.
   `run.sh`, Python environment and colcon overlay; nothing outside the
   directory imports it, and `ros/deploy.sh` cannot ship it (isolation rules
   of the sibling experiment apply, and a test enforces the import boundary)
+
 - [ ] **FOUND-02**: Developer can install a pinned RAI stack reproducibly:
   `rai-core==2.12.0`, `rai-whoami==0.0.5`, `rai_interfaces` at a pinned
   commit, with the resolved LangChain/LangGraph versions locked in a
   committed lockfile (RAI leaves them unpinned upstream)
+
 - [ ] **FOUND-03**: Developer can start the agent against the existing
   simulation (`ros/sim.sh`) with one command from the experiment's `run.sh`;
   the agent process inherits the stack's DDS settings (`ROS_DOMAIN_ID`,
   CycloneDDS) and discovers the sim's topics without changes to `ros/docker`,
   `ros/sim.sh`, or any production package
-- [ ] **FOUND-04**: Model vendor keys and tracing keys enter only through the
+
+- [x] **FOUND-04**: Model vendor keys and tracing keys enter only through the
   gitignored `.env`; the committed RAI `config.toml` template contains no
   secret, and a unit test rejects secret-looking values in tracked config
+
 - [ ] **FOUND-05**: Developer can toggle Langfuse tracing in config so every
   prompt, tool call and completion is inspectable; off by default, no
   private host identity committed
-- [ ] **FOUND-06**: Developer can run a model-free unit test suite via
+
+- [x] **FOUND-06**: Developer can run a model-free unit test suite via
   `run.sh test` that needs no LLM key, no ROS runtime and no GPU, covering
   tool argument parsing, velocity clamping, config loading and whoami
   assembly
+
 - [ ] **FOUND-07**: The experiment's container/environment builds and runs on
   both the x86-64 laptop and the aarch64 remote GPU dev box (multi-arch
   image or arch-agnostic install), so sim + agent can run on either
@@ -43,6 +49,7 @@ Requirements for initial release. Each maps to roadmap phases.
   from the robot's URDF/MuJoCo model plus a capability document, producing
   identity, constitution and capabilities in the system prompt, rebuildable
   by one `run.sh` target
+
 - [ ] **EMB-02**: Agent correctly explains what it cannot do: asked to grab
   an object, jump, or perform a trick, it declines with its real capability
   list (walk, navigate, look) rather than hallucinating a tool; covered by
@@ -53,12 +60,15 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **HRI-01**: Human can send text to the agent on `/from_human` and read
   replies on `/to_human` using `rai_interfaces` HRI messages, the same
   channel RAI's voice and text demos use
+
 - [ ] **HRI-02**: Human can chat with the agent through a UI started by
   `run.sh` (RAI's Streamlit pattern or a CLI wrapper on the HRI topics),
   seeing tool calls and replies as they stream
+
 - [ ] **HRI-03**: Operator can switch the model vendor (OpenAI-compatible,
   AWS Bedrock, Ollama, Google) purely in config; no vendor is hard-coded in
   the agent code, and the concrete default is chosen in a separate task
+
 - [ ] **HRI-04**: Operator can assign separate "complex" (reasoning) and
   "simple" (image description) model roles in config, per RAI's model-role
   convention
@@ -69,11 +79,13 @@ Requirements for initial release. Each maps to roadmap phases.
   "turn left") and the agent publishes a bounded (vx, vy, wz) on the agent's
   own velocity topic through an allowlisted RAI tool; simulated Wojtek walks
   under the RL policy
+
 - [ ] **MOT-02**: A velocity arbiter (`twist_mux` or equivalent) sits between
   the agent's velocity topic and the policy's `cmd_vel`: it clamps to the
   trained command envelope, zeroes velocity when the agent's command is
   stale (timeout/deadman), and gives teleop/gamepad priority over the agent;
   the agent can never bypass it
+
 - [ ] **MOT-03**: User can type "stop" and the robot receives zero velocity
   immediately through a dedicated stop tool, independent of LLM reasoning
   latency
@@ -84,6 +96,7 @@ Requirements for initial release. Each maps to roadmap phases.
   1 m left") and the agent calls a `navigate_to` tool that wraps
   SCAN-Planner's existing executor as a ROS node with a sim pose source, so
   the robot reaches the goal without walking into furniture
+
 - [ ] **NAV-02**: The `navigate_to` tool reports success, blocked, or gave-up
   from the planner's own progress/stuck thresholds and pose evidence, never
   from the LLM's belief; the agent relays that outcome to the user
@@ -93,6 +106,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **VIS-01**: User can ask "what do you see?" and the agent grabs the
   current sim camera frame through an image tool subscribed with sensor-data
   QoS, sends it to the VLM role, and answers with a scene description
+
 - [ ] **VIS-02**: Agent can query a robot-state tool returning pose, current
   velocity, and a stuck flag, so it can answer "where are you" and check
   progress during tasks
@@ -102,9 +116,11 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **AGT-01**: A single RAI conversational (ReAct) agent with a tool
   registry that later phases populate (velocity, stop, navigate, image,
   state) routes free text to the right registered tool
+
 - [ ] **AGT-02**: Multi-step instructions ("go to the chair, then tell me what
   is there") execute as the correct tool sequence; a scripted prompt set
   with expected tool traces validates this in sim
+
 - [ ] **AGT-03**: Long-running navigation runs in a separate RAI StateBased
   execution agent so the conversational agent stays responsive (can answer
   or stop) while the robot is walking
@@ -122,6 +138,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 - **NAV-03**: Nav2 as alternative `navigate_to` backend if SCAN-Planner proves
   insufficient
+
 - **NAV-04**: Object-grounded goals via `rai_perception` open-set detection
   ("the chair" resolved to a detected chair)
 
@@ -129,6 +146,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 - **DEP-01**: RAI agent runs on the onboard Jetson, DDS over the robot's
   access point to the RPi control loop
+
 - **DEP-02**: Local/on-device model backend validated for Jetson
 
 ### Interaction
@@ -161,9 +179,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-01 | Phase 1 | Pending |
 | FOUND-02 | Phase 1 | Pending |
 | FOUND-03 | Phase 1 | Pending |
-| FOUND-04 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 2 | Pending |
-| FOUND-06 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Complete |
 | FOUND-07 | Phase 1 | Pending |
 | EMB-01 | Phase 2 | Pending |
 | EMB-02 | Phase 2 | Pending |
@@ -183,6 +201,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGT-03 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 23 total
 - Mapped to phases: 23 ✓
 - Unmapped: 0
