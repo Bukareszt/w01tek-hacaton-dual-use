@@ -28,3 +28,7 @@ CLAUDE.local.md
 #notatki i praca lokalna
 notes/
 Makefile.local
+
+# GSD orchestration runtime state (session-local, never committed)
+.gsd/
+.planning/milestone.lock
