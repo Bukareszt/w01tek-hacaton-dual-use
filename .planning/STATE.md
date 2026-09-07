@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Isolated RAI Environment
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-09-07T12:51:13.215Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-09-07T13:07:57.251Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 01 execution started
-state_head: 0679a3379696017dd2957948c977dbbc3a3b1e72
+state_head: d63625ed2d9bc9b7d090a0d1f4815ca41e1f45cb
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-05)
 ## Current Position
 
 Phase: 01 (Isolated RAI Environment) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 01 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 150 min | 3 tasks | 9 files |
+| Phase 01 P02 | 35 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Vision (Phase 4) precedes navigation (Phase 5) — the robot-state/pose tool is evidence navigation needs, and it defers the highest-risk work
 - [Roadmap]: Phase 2 creates the single ReAct agent and its tool registry; Phases 3-5 register tools into it
 - [Phase 01]: Task 1 checkpoint: run.sh owns the wojtek_robot container lifecycle (option-a), replicating ros/sim.sh's/ros/dev.sh's platform-detection branch, to keep zero edits under ros/
+- [Phase 01]: Resolved rai_interfaces tag 0.3.0 to commit 2398f1f3e4c96d790365492294599439a38cdf9a via a fresh git ls-remote at execution time, pinning it in ros/rai_interfaces.repos rather than the main branch upstream pins.
 
 ### Pending Todos
 
@@ -94,6 +96,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-07T12:51:13.178Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-09-07T13:07:57.219Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
