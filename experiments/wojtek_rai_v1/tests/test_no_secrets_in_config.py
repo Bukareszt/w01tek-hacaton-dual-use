@@ -21,6 +21,20 @@ This is model-free: no `rclpy`, no LLM key, no GPU, no network (FOUND-06).
 Both scans are proven fail-first by the two `test_*_regex_detects_*` tests
 below, which build a violating string from parts at runtime rather than
 writing an example credential or host identity into this source file.
+
+**Container execution note:** this suite normally runs inside the
+`wojtek_robot` container via `run.sh test`, where only this experiment's
+own directory (plus `ros/src`) is bind-mounted (D-02) -- there is no `.git`
+anywhere inside that mount, so `git ls-files` cannot run there.
+`tracked_config_files()` detects this (no `.git` reachable by walking
+upward from this file) and falls back to a plain directory walk that
+excludes exactly what this experiment's own `.gitignore` excludes, which
+can only over-scan relative to `git ls-files`, never under-scan. The
+root `.env.example` is similarly unreachable inside that mount by default;
+`docker/compose.override.yaml` adds one additional read-only bind mount of
+just that single file (already public, secret-free by design -- it is a
+template of placeholder names) at the container path this fallback expects,
+so the scan can still cover it.
 """
 
 from __future__ import annotations
@@ -31,6 +45,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
+THIS_FILE = Path(__file__).resolve()
+
+# Paths this experiment's own .gitignore excludes (generated/arch-specific,
+# rebuilt independently on each machine) -- mirrored here, not parsed from
+# the file, since the fallback below only runs where git itself is
+# unreachable. Directory names ignored everywhere regardless of position.
+_GITIGNORED_PREFIXES = (
+    ".venv/",
+    ".tools/",
+    ".uv-cache/",
+    "ros_ws/build/",
+    "ros_ws/install/",
+    "ros_ws/log/",
+    "ros_ws/src/",
+)
+_IGNORED_DIR_NAMES = {"__pycache__", ".pytest_cache", ".git"}
 
 # Common cloud API key / token shapes. Extend as new vendors are added
 # (HRI-03).
@@ -63,28 +93,78 @@ PRIVATE_IDENTITY_RE = re.compile(
 )
 
 
+def _find_git_root(start: Path) -> Path | None:
+    """Walk upward from `start` looking for a `.git` entry.
+
+    Returns `None` inside the `wojtek_robot` container, where only this
+    experiment's directory is bind-mounted and no ancestor has `.git`.
+    """
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _walk_experiment_dir_excluding_generated(experiment_dir: Path) -> list[Path]:
+    """Fallback discovery when no `.git` is reachable (see module docstring).
+
+    Filters out exactly the paths this experiment's own `.gitignore`
+    excludes, plus universal noise directories. The result can only
+    over-approximate `git ls-files`'s view (a few more untracked-but-not-
+    ignored files), never under-approximate it -- the safe direction for a
+    security guard.
+    """
+    results = []
+    for path in experiment_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        rel_parts = path.relative_to(experiment_dir).parts
+        if any(part in _IGNORED_DIR_NAMES for part in rel_parts[:-1]):
+            continue
+        rel = path.relative_to(experiment_dir).as_posix()
+        if rel.startswith(_GITIGNORED_PREFIXES):
+            continue
+        results.append(path)
+    return results
+
+
 def tracked_config_files() -> list[Path]:
     """Every git-tracked file under this experiment, plus root .env.example.
 
-    Discovered with `git ls-files` so untracked local scratch files are
-    correctly out of scope -- a developer's own uncommitted experiments
-    must never fail this suite.
+    Discovered with `git ls-files` when `.git` is reachable, so untracked
+    local scratch files are correctly out of scope -- a developer's own
+    uncommitted experiments must never fail this suite. Falls back to
+    `_walk_experiment_dir_excluding_generated()` when it is not (see module
+    docstring). This guard test's own source is excluded either way: it
+    necessarily contains the detection patterns themselves as code, not a
+    real leak.
     """
-    result = subprocess.run(
-        ["git", "ls-files", str(EXPERIMENT_DIR)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    tracked = [
-        REPO_ROOT / line for line in result.stdout.splitlines() if line.strip()
-    ]
+    git_root = _find_git_root(EXPERIMENT_DIR)
+    if git_root is not None:
+        result = subprocess.run(
+            ["git", "ls-files", str(EXPERIMENT_DIR)],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        tracked = [
+            git_root / line for line in result.stdout.splitlines() if line.strip()
+        ]
+        env_example = git_root / ".env.example"
+    else:
+        tracked = _walk_experiment_dir_excluding_generated(EXPERIMENT_DIR)
+        env_example = REPO_ROOT / ".env.example"
+
     assert tracked, (
-        f"git ls-files returned nothing under {EXPERIMENT_DIR} -- "
+        f"no tracked files discovered under {EXPERIMENT_DIR} -- "
         "this suite must never pass by scanning an empty set"
     )
-    tracked.append(REPO_ROOT / ".env.example")
+    assert env_example.is_file(), (
+        f"{env_example} not found -- cannot verify FOUND-04 without it"
+    )
+    tracked = [p for p in tracked if p.resolve() != THIS_FILE]
+    tracked.append(env_example)
     return tracked
 
 
@@ -101,6 +181,13 @@ def test_no_secret_shaped_values_in_tracked_files():
 
 def test_no_private_infrastructure_identity_in_tracked_files():
     for path in tracked_config_files():
+        if path.name == "uv.lock":
+            # Generated lockfile: dotted package-version strings (e.g.
+            # opencv-python-headless's "4.11.0.86") are indistinguishable
+            # from a dotted-quad IP by shape alone, and nobody hand-writes
+            # a host identity into a machine-generated lockfile. Still
+            # covered by the secret-shape scan above.
+            continue
         text = path.read_text()
         hits = PRIVATE_IDENTITY_RE.findall(text)
         assert not hits, (

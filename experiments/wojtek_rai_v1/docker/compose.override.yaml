@@ -24,7 +24,20 @@
 # base wojtek_robot service. Redeclaring any of them here would risk
 # silently diverging this experiment's DDS domain from the simulation it
 # needs to discover topics on.
+#
+# Second mount, read-only: the repo-root .env.example, at
+# /ros2_ws/.env.example. Plan 01-03 / FOUND-04 requires a model-free test
+# (tests/test_no_secrets_in_config.py) to scan this file for secret-shaped
+# values, but only this experiment's own directory (above) and ros/src are
+# otherwise visible inside the container -- the repository's .git and its
+# root files, including .env.example, are not part of either mount. This
+# one file is safe to expose: it is already public, committed, tracked
+# content that by design carries placeholder names only, never a real
+# value, and the mount is read-only so nothing inside the container can
+# edit the host's tracked copy. This is the only file from outside the
+# experiment directory this override ever mounts.
 services:
   wojtek_robot:
     volumes:
       - ../../experiments/wojtek_rai_v1:/ros2_ws/experiments/wojtek_rai_v1
+      - ../../.env.example:/ros2_ws/.env.example:ro
