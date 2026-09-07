@@ -173,7 +173,7 @@ thing the operator is actually looking at. The handheld it is drawn for is
 and everything else keeps to the edges:
 
 ```
- mark WOJTEK   link bridge cam pad det        policy      H     clock
+ mark WOJTEK   link bridge cam pad det   policy   H  clock  full reload
  fwd cam · fps                                          objects · people
 
                           reticle, heading,
@@ -195,6 +195,17 @@ body is moving on the left, what the legs and the computer are doing on
 the right, and the two numbers worth a glance, speed and mode, in the
 middle. They are one row in the markup, so they finish level without
 anyone counting pixels.
+
+The two words at the far end of the top band are the only controls that
+are not for the robot, which is why they are drawn as lamps rather than as
+pills and sit as far from Arm as the screen allows. **Full** fills the
+screen and gives it back — the handheld has no keyboard, so this is F11;
+in a window there is a frame to minimise and close with a finger, and with
+none there is no way out at all. **Reload** loads the page again, which is
+F5. Full follows the actual state rather than the last press, so it says
+"window" whenever the screen is filled, however that happened. A page may
+only ask for the whole screen while a finger is on it, so the panel always
+opens in a window and the first tap is yours.
 
 ### Colours and faces
 

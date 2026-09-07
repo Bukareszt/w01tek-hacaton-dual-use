@@ -41,6 +41,12 @@
     <div class="readouts">
       <span>H <b id="height">—</b> m</span>
       <span id="hud-clock"></span>
+      <!-- The panel runs on a handheld with no keyboard, so the two things
+           F11 and F5 would do have to be on the page itself. Full puts the
+           picture on the whole screen and takes it back off, which is the
+           only way to reach the window's own frame with a finger. -->
+      <button class="chip" id="fullscreen" title="fill the screen">full</button>
+      <button class="chip" id="reload" title="load the panel again">reload</button>
     </div>
   </header>
 

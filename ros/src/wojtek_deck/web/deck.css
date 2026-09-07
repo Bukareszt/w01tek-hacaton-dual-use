@@ -112,6 +112,16 @@ body {
   font: 400 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--on-image-2);
 }
 .readouts b { font-weight: 500; color: var(--on-image-1); }
+/* The masthead's only control, drawn as a lamp because it belongs to the
+   band and not to the command row along the bottom: starting the page over
+   is not something the robot does, and it must not sit within a thumb's
+   reach of Arm. */
+.chip {
+  font: 400 var(--micro)/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  padding: .4rem .7rem; min-height: 0; min-width: 0; border-radius: 0;
+  border: 1px solid var(--line-image-2); background: none; color: var(--on-image-3);
+}
+.chip:hover, .chip:active { border-color: var(--red-soft); color: var(--red-soft); }
 
 /* ---- the two tags under the masthead ----------------------------------- */
 .tag {

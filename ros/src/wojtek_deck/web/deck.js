@@ -372,6 +372,21 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) { key
 
 for (const b of document.querySelectorAll("[data-call]")) b.onclick = () => call(b.dataset.call);
 for (const b of document.querySelectorAll("[data-height]")) b.onclick = () => send({ t: "height", delta: parseFloat(b.dataset.height) });
+// Deliberately not data-calls: these two talk to the browser, not the robot.
+document.getElementById("reload").onclick = () => location.reload();
+const fullBtn = document.getElementById("fullscreen");
+fullBtn.onclick = () => {
+  // A page may only ask for the whole screen while a finger is on it, which
+  // is why this cannot happen by itself at load.
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+};
+// The screen can also be given back by the browser (Escape on a keyboard),
+// so the word follows the actual state rather than the last press.
+document.addEventListener("fullscreenchange", () => {
+  fullBtn.textContent = document.fullscreenElement ? "window" : "full";
+  fullBtn.title = document.fullscreenElement ? "give the window back" : "fill the screen";
+});
 
 // ---- render loop -------------------------------------------------------------
 setInterval(() => {
