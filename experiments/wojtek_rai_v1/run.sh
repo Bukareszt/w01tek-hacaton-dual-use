@@ -31,7 +31,7 @@ usage() {
   cat >&2 <<'USAGE'
 usage: run.sh {install|build|test|container|agent|agent-topics|up} [args]
   install       pinned venv inside the wojtek_robot container (uv + uv.lock)
-  build         colcon build of this experiment's own ROS packages (plan 01-02)
+  build         vcs import + rosdep + colcon build of rai_interfaces into ros_ws/
   test          model-free unit tests -- no ROS runtime, no LLM key, no GPU
   container     bring up wojtek_robot with this experiment's bind mount, idempotently
   agent         run the RAI agent process (not implemented until Phase 2)
@@ -172,8 +172,75 @@ INSTALL
     ;;
 
   build)
-    echo "build: not implemented yet -- see plan 01-02 (rai_interfaces via vcs + colcon)" >&2
-    exit 1
+    shift
+    container
+    # Runs entirely inside the running container via stdin, matching
+    # install's own docker exec -i wojtek_robot bash -s pattern -- no
+    # host-side quoting of container-side variables. vcs/rosdep/colcon are
+    # system tools from ros-dev-tools (ros/docker/Dockerfile), not the uv
+    # venv, so this does not go through container_py()'s "exec .venv/bin/
+    # python" tail; it reuses only the shared ROS-sourcing order (plan
+    # 01-01: /opt/ros/jazzy/setup.bash before this experiment's own overlay,
+    # then cd into the experiment root -- RESEARCH.md Pattern 2 + 4).
+    docker exec -i wojtek_robot bash -s <<'BUILD'
+# -u (nounset) deliberately not set -- see the comment in container_py() /
+# the install block above; /opt/ros/jazzy/setup.bash is not nounset-safe.
+set -eo pipefail
+EXP_DIR=/ros2_ws/experiments/wojtek_rai_v1
+cd "$EXP_DIR"
+
+source /opt/ros/jazzy/setup.bash
+
+# Guard on colcon being available -- matches the sibling experiment's exact
+# guard. ros-dev-tools (ros/docker/Dockerfile) already ships colcon in this
+# image, so this only fires if ROS 2 was not sourced, or on a differently
+# built image; either way, name the missing tool rather than failing later
+# with a confusing "colcon: command not found" mid-build.
+command -v colcon >/dev/null 2>&1 || {
+  echo "colcon not found: source a ROS 2 setup.bash first" >&2
+  exit 1
+}
+
+# 1. vcs import into this experiment's own overlay -- never ros/src/ (T-01-08).
+#    Idempotent: when ros_ws/src/rai_interfaces is already checked out at the
+#    pinned SHA, skip the import instead of re-cloning or failing.
+mkdir -p ros_ws/src
+PINNED_SHA=$(grep -E '^\s*version:' ros/rai_interfaces.repos | awk '{print $2}')
+if [ -d ros_ws/src/rai_interfaces/.git ] \
+    && [ "$(git -C ros_ws/src/rai_interfaces rev-parse HEAD 2>/dev/null)" = "$PINNED_SHA" ]; then
+  echo ">> ros_ws/src/rai_interfaces already at $PINNED_SHA -- skipping vcs import"
+else
+  vcs import ros_ws/src < ros/rai_interfaces.repos
+fi
+
+# 2. rosdep: mandatory, not an optimisation to skip (Pitfall 3).
+#    rai_interfaces' own package.xml declares vision_msgs, nav2_msgs,
+#    nav2_simple_commander, tf_transformations and portaudio19-dev -- none
+#    of which are in this image today (Nav2 is explicitly out of scope for
+#    this project, so nothing pulled them in before). Run `rosdep update`
+#    first only when the cache is absent; the image's own build already
+#    seeded it (ros/docker/Dockerfile's `rosdep init`/`rosdep update`).
+if [ ! -d "${HOME:-/root}/.ros/rosdep/sources.cache" ] \
+    || [ -z "$(ls -A "${HOME:-/root}/.ros/rosdep/sources.cache" 2>/dev/null)" ]; then
+  rosdep update --rosdistro "${ROS_DISTRO:-jazzy}"
+fi
+rosdep install --from-paths ros_ws/src --ignore-src -r -y
+
+# 3. colcon build for this experiment's own ROS packages only. They live
+#    outside ros/src so that ros/deploy.sh (which rsyncs ros/src to the
+#    robot and builds --packages-up-to wojtek_bringup) can never ship them;
+#    that also means ros/sim.sh does not build them, hence this target.
+#    [Rule 1 deviation] --base-paths only tells colcon where to *discover*
+#    packages (ros_ws/src/); it does not relocate the build/install/log
+#    output dirs, which default to cwd. Without the explicit --*-base flags
+#    below, colcon writes build/install/log at the experiment root instead
+#    of inside ros_ws/, breaking this task's own acceptance criterion
+#    (ros_ws/install/rai_interfaces/) and the isolation-friendly layout
+#    D-13/RESEARCH.md's "Recommended Project Structure" both call for.
+colcon --log-base ros_ws/log build --symlink-install --base-paths ros_ws \
+  --build-base ros_ws/build --install-base ros_ws/install
+echo ">> build complete: $EXP_DIR/ros_ws/install"
+BUILD
     ;;
 
   test)
