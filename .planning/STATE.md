@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Isolated RAI Environment
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-09-07T13:33:09.354Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-09-07T14:41:30.602Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 01 execution started
-state_head: 0ea02ed413523ee2bdeea230a1cf3f02e51747ce
+state_head: 4e70371a2a9625b5f15ea3826f43e5d6a7a6354f
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-05)
 ## Current Position
 
 Phase: 01 (Isolated RAI Environment) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 01 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 150 min | 3 tasks | 9 files |
 | Phase 01 P02 | 35 min | 2 tasks | 4 files |
 | Phase 01 P03 | ~50 min | 3 tasks | 7 files |
+| Phase 01 P04 | 64 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Task 1 checkpoint: run.sh owns the wojtek_robot container lifecycle (option-a), replicating ros/sim.sh's/ros/dev.sh's platform-detection branch, to keep zero edits under ros/
 - [Phase 01]: Resolved rai_interfaces tag 0.3.0 to commit 2398f1f3e4c96d790365492294599439a38cdf9a via a fresh git ls-remote at execution time, pinning it in ros/rai_interfaces.repos rather than the main branch upstream pins.
 - [Phase 01]: Phase 01 plan 03: added a read-only .env.example bind mount to compose.override.yaml and a git-unreachable fallback in the secret-scan guard, since the wojtek_robot container only bind-mounts the experiment dir + ros/src (D-02), not the repo's .git or root files
+- [Phase 01]: Widened the wojtek_robot container's compose override with a read-write repo-root mount (/ros2_ws/repo_root) — Two of plan 01-04's guard tests need to see ros/, training/ and ros/deploy.sh, and its boundary-pair fail-first demo needs write access one level outside the experiment dir; none of D-02's existing mounts reached any of that.
+- [Phase 01]: Fixed a vacuous pre-existing guard test: test_repos_pin.py's ros/src check had been scanning a nonexistent path inside the container since plan 01-02 — conftest.py's repo_root fixture now prefers the new repo_root mount, so the ros/src scan actually sees ros/src; demonstrated fail-first with a probe path, reverted.
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-07T13:33:09.324Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-09-07T14:41:30.570Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None

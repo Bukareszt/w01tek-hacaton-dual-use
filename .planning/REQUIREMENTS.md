@@ -9,18 +9,18 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Foundation
 
-- [ ] **FOUND-01**: Developer can run the RAI integration as one self-contained
+- [x] **FOUND-01**: Developer can run the RAI integration as one self-contained
   directory under `experiments/` with its own `README.md` (status line),
   `run.sh`, Python environment and colcon overlay; nothing outside the
   directory imports it, and `ros/deploy.sh` cannot ship it (isolation rules
   of the sibling experiment apply, and a test enforces the import boundary)
 
-- [ ] **FOUND-02**: Developer can install a pinned RAI stack reproducibly:
+- [x] **FOUND-02**: Developer can install a pinned RAI stack reproducibly:
   `rai-core==2.12.0`, `rai-whoami==0.0.5`, `rai_interfaces` at a pinned
   commit, with the resolved LangChain/LangGraph versions locked in a
   committed lockfile (RAI leaves them unpinned upstream)
 
-- [ ] **FOUND-03**: Developer can start the agent against the existing
+- [x] **FOUND-03**: Developer can start the agent against the existing
   simulation (`ros/sim.sh`) with one command from the experiment's `run.sh`;
   the agent process inherits the stack's DDS settings (`ROS_DOMAIN_ID`,
   CycloneDDS) and discovers the sim's topics without changes to `ros/docker`,
@@ -176,9 +176,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Pending |
-| FOUND-02 | Phase 1 | Pending |
-| FOUND-03 | Phase 1 | Pending |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
+| FOUND-03 | Phase 1 | Complete |
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 2 | Pending |
 | FOUND-06 | Phase 1 | Complete |
