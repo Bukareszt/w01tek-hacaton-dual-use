@@ -17,10 +17,47 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$PWD"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 
 # Path to this experiment as seen from *inside* the wojtek_robot container,
 # via the bind mount docker/compose.override.yaml adds.
 CONTAINER_EXP_DIR="/ros2_ws/experiments/wojtek_rai_v1"
+
+# Credentials enter only through the repo-root gitignored .env (D-11) --
+# never an experiment-local one -- and config.toml (wojtek_rai/config.py)
+# carries vendor/model names, not values. Source it here, above the
+# subcommand dispatch, in the exact set -a / source / set +a shape
+# ros/deploy.sh already uses for the same purpose (and, like that script,
+# never echoes a value). A missing .env is not an error: this phase makes
+# no model call, so it just means none of the names below end up set.
+if [ -f "$REPO_ROOT/.env" ]; then
+  set -a; . "$REPO_ROOT/.env"; set +a
+fi
+
+# The vendor/tracing credential names this experiment can ever need --
+# the five wojtek_rai.config.required_env_vars() can return, plus the two
+# Langfuse tracing names (not vendor-specific); all seven are declared as
+# placeholders in the repo-root .env.example. Forwarded into the container
+# by name only: `docker exec -e NAME` (no "=value") reads the value from
+# this process's own environment without ever restating it on a command
+# line, in a log line, or in any file. A name is included only when this
+# process already has it set and non-empty, so the container never
+# receives a stack of blank variables. Nothing in this script may print a
+# credential -- no shell trace (set -x/-o xtrace) anywhere, no echo of any
+# of these names' values.
+CRED_VARS=(
+  OPENAI_API_KEY
+  AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+  GOOGLE_API_KEY
+  LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
+)
+CRED_ENV_ARGS=()
+for _cred_name in "${CRED_VARS[@]}"; do
+  if [ -n "${!_cred_name:-}" ]; then
+    CRED_ENV_ARGS+=(-e "$_cred_name")
+  fi
+done
+unset _cred_name
 
 # `test`'s interpreter escape hatch (matches the sibling experiment's
 # EXP_PY): an explicit host interpreter that already has pytest, for a
@@ -76,7 +113,10 @@ container() {
 # (RESEARCH.md Pattern 2 + Pattern 4 combined), so `agent`/`agent-topics`
 # never duplicate this sourcing order.
 container_py() {
-  docker exec -i wojtek_robot bash -s <<PYEOF
+  # CRED_ENV_ARGS (built above, above the subcommand dispatch): forwards
+  # only the credential names this process already has set, by name, never
+  # by value -- see the comment where it is built.
+  docker exec -i ${CRED_ENV_ARGS[@]+"${CRED_ENV_ARGS[@]}"} wojtek_robot bash -s <<PYEOF
 # -u (nounset) deliberately not set: /opt/ros/jazzy/setup.bash references
 # unset variables internally (e.g. AMENT_TRACE_SETUP_FILES) -- matches
 # ros/sim.sh's and ros/dev.sh's own "set -eo pipefail" for the same reason.
