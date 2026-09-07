@@ -6,6 +6,52 @@ simulation on the PC.
 
 This file is the runbook. The background is at the bottom.
 
+## First contact: the keys
+
+Do this once per machine. Everything below assumes ssh already works.
+
+The Deck is the awkward one. Its sshd only accepts keys, and it cannot be
+started remotely, so the first key has to be put there by hand. That needs a
+keyboard, and the Deck's on-screen keyboard belongs to Steam. So do this
+while Steam is still running, or plug in a USB keyboard.
+
+**1. Read the PC's public key.**
+
+```bash
+ssh-add -L | head -1                 # or: cat ~/.ssh/id_ed25519.pub
+```
+
+**2. On the Deck, open Konsole and type this.** Press STEAM then X for the
+on-screen keyboard. Paste the line from step 1 in place of `<key>`.
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+ssh-keygen -t ed25519 -f ~/.ssh/host_key -N ''    # the sshd's own host key
+echo '<key>' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+**3. Install the helpers from the PC.** This is what puts the five icons on
+the Deck's desktop, `Deck SSH on` among them.
+
+```bash
+./ros/deck.sh install
+```
+
+Until this runs, start the sshd from Konsole by hand:
+
+```bash
+/usr/bin/sshd -D -e -p 2222 -h ~/.ssh/host_key \
+  -o PidFile=/tmp/sshd.pid -o AuthorizedKeysFile=.ssh/authorized_keys &
+```
+
+**4. The robot takes a key the ordinary way.** It answers on port 22 and
+accepts a password, so one command does it.
+
+```bash
+ssh-copy-id rpi@10.42.0.2
+```
+
 ## Bring it up from cold
 
 Do these in order. Steps 1 and 2 need a finger on the Deck. The rest is
@@ -68,6 +114,54 @@ In the simulation, the gateway starts by itself:
 ```
 
 `./ros/deck.sh panel` with no argument points the Deck at this PC.
+
+## Put the panel on the robot, once
+
+The robot needs this only the first time, or after it is reflashed. Check
+whether it is already there:
+
+```bash
+ssh rpi@10.42.0.2 'ls -d ~/wojtek_ws/install/wojtek_deck ~/py_deps ~/deck_assets'
+```
+
+`./ros/deploy.sh` does not carry the package. It builds
+`--packages-up-to wojtek_bringup`, and `wojtek_deck` is not among those.
+Nor should the whole workspace be rebuilt while the control stack is
+running, which is why this is done by hand.
+
+**1. Send the package and build it.** Cores 0 and 1 only. The control loop
+owns 2 and 3.
+
+```bash
+rsync -az ros/src/wojtek_deck/ rpi@10.42.0.2:wojtek_ws/src/wojtek_deck/
+ssh rpi@10.42.0.2 'source /opt/ros/jazzy/setup.bash && cd ~/wojtek_ws &&
+  nice -n 19 taskset -c 0,1 colcon build --packages-select wojtek_deck'
+```
+
+**2. Give it aiohttp.** The gateway needs it. The robot has no route to
+pypi, so the wheels are carried over from the PC. They go in a directory of
+their own, which leaves the system Python alone and makes the whole thing
+undoable with one `rm -rf`.
+
+```bash
+pip3 download aiohttp typing_extensions --dest /tmp/whl \
+  --platform manylinux2014_aarch64 --python-version 312 --only-binary=:all:
+scp /tmp/whl/*.whl rpi@10.42.0.2:/tmp/
+ssh rpi@10.42.0.2 'python3 -m pip install --no-index --find-links=/tmp --target ~/py_deps aiohttp'
+```
+
+`typing_extensions` is asked for by name because pip drops it when the
+downloading machine runs Python 3.13 or newer.
+
+**3. Send the detector's assets.**
+
+```bash
+./ros/src/wojtek_deck/fetch_assets.sh     # only if ros/deck_assets is empty
+rsync -az ros/deck_assets/ rpi@10.42.0.2:deck_assets/
+```
+
+Now step 5 above works. All three live in the robot's home directory, so a
+reboot keeps them.
 
 ## Read the top band
 
