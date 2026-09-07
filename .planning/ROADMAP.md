@@ -43,7 +43,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. With `ros/sim.sh` already running, one `run.sh` command starts the RAI process and it lists the simulation's live topics (`cmd_vel`, camera) — with zero edits to `ros/docker`, `ros/sim.sh`, or any package under `ros/src/`
   3. `run.sh test` passes with no LLM key, no ROS runtime and no GPU, and fails if anything outside the experiment directory imports it or if `ros/deploy.sh` could ship it
   4. Vendor and tracing keys are read only from the gitignored `.env`; the committed `config.toml` template contains placeholders, and a test rejects secret-looking values in tracked config
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Walking skeleton / tracer: pinned RAI install and live topic discovery end to end
+- [ ] 01-02-PLAN.md — `rai_interfaces` pinned to a commit SHA and built into the experiment's own colcon overlay
+- [ ] 01-03-PLAN.md — Secrets hygiene: vendor config template, `.env`-only credentials, secret-shape guard
+- [ ] 01-04-PLAN.md — Isolation, pinning, compose-override and model-free guard tests, plus the experiment README
+- [ ] 01-05-PLAN.md — Two-machine verification record (x86-64 laptop and aarch64 remote GPU dev box)
 
 ### Phase 2: Wojtek Talks
 **Goal**: A human can hold a text conversation with a single RAI agent that identifies as Wojtek, describes its real body and capabilities, and refuses what it cannot do
@@ -105,7 +112,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Isolated RAI Environment | 0/TBD | Not started | - |
+| 1. Isolated RAI Environment | 0/5 | Planned | - |
 | 2. Wojtek Talks | 0/TBD | Not started | - |
 | 3. Safe Walking | 0/TBD | Not started | - |
 | 4. Seeing and Self-Report | 0/TBD | Not started | - |
