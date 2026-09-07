@@ -84,7 +84,14 @@ search() {
 # .env wins; then the last address that worked, but only while it still
 # answers; then a search.
 host() {
-    if [ -n "$DECK_HOST" ]; then printf '%s\n' "${DECK_HOST#*@}"; return 0; fi
+    # A pinned address is a shortcut, not a promise: this machine moves, so
+    # when it stops answering there the search still runs rather than leaving
+    # ssh to time out on a stale entry.
+    if [ -n "$DECK_HOST" ]; then
+        local pinned="${DECK_HOST#*@}"
+        if port_open "$pinned"; then printf '%s\n' "$pinned"; return 0; fi
+        echo "DECK_HOST ($pinned) does not answer on port $DECK_SSH_PORT; looking" >&2
+    fi
     if [ -f "$CACHE" ]; then
         local cached; cached="$(cat "$CACHE")"
         if port_open "$cached"; then printf '%s\n' "$cached"; return 0; fi
