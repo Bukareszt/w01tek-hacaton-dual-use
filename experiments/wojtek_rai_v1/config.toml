@@ -1,0 +1,53 @@
+# Source: raw.githubusercontent.com/RobotecAI/rai/2.12.0/config.toml
+# (verified during Phase 1 research), trimmed to the sections this
+# milestone uses -- [asr]/[tts] (voice) are dropped since RAI's own
+# load_config() only requires [vendor]; every other section defaults.
+#
+# This file carries vendor and model names only. RAI reads credentials
+# for each backend from the process environment through that backend's
+# own LangChain integration convention (OPENAI_API_KEY, the standard AWS
+# SDK credential chain, GOOGLE_API_KEY, ...) -- never from this file.
+# The repo-root gitignored .env is where credentials live (see
+# .env.example). tests/test_no_secrets_in_config.py fails the suite if a
+# credential-shaped value is ever added here.
+#
+# The concrete vendor choice is deferred to a later task (HRI-03); this
+# file ships upstream defaults, not a project decision.
+[vendor]
+simple_model = "openai"
+complex_model = "openai"
+embeddings_model = "openai"
+
+[aws]
+simple_model = "anthropic.claude-3-haiku-20240307-v1:0"
+complex_model = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+embeddings_model = "amazon.titan-embed-text-v1"
+region_name = "us-east-1"
+
+[openai]
+simple_model = "gpt-4o-mini"
+complex_model = "gpt-4o"
+embeddings_model = "text-embedding-ada-002"
+base_url = "https://api.openai.com/v1/"
+
+[ollama]
+simple_model = "llama3.2"
+complex_model = "llama3.1:70b"
+embeddings_model = "llama3.2"
+base_url = "http://localhost:11434"
+
+[google]
+simple_model = "gemini-3-flash"
+complex_model = "gemini-3-pro"
+embeddings_model = "text-embedding-004"
+
+[tracing]
+project = "rai"
+
+[tracing.langfuse]
+use_langfuse = false
+host = "http://localhost:3000"
+
+[tracing.langsmith]
+use_langsmith = false
+host = "https://api.smith.langchain.com"
