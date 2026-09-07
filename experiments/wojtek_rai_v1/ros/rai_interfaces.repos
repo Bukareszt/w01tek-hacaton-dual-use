@@ -1,0 +1,18 @@
+# vcstool import spec for rai_interfaces (ROS 2 message/service definitions;
+# not on PyPI, so this is its own pin -- see D-09 and 01-CONTEXT.md).
+#
+# Resolved 2026-09-07 via `git ls-remote https://github.com/RobotecAI/rai_interfaces
+# refs/tags/0.3.0` -- the SHA below is the commit tag 0.3.0 (the latest cut
+# release at the time of this phase, not a moving branch tip) points at.
+#
+# Upstream rai_core@2.12.0's own ros_deps.repos pins this same repository to
+# branch `main`, which gives no reproducibility guarantee at all -- this
+# project deliberately pins a concrete commit instead. If a later phase's
+# build surfaces a message-field mismatch against rai-core==2.12.0, re-verify
+# this pin against main's current HEAD before assuming the mismatch is a bug
+# elsewhere.
+repositories:
+  rai_interfaces:
+    type: git
+    url: https://github.com/RobotecAI/rai_interfaces.git
+    version: 2398f1f3e4c96d790365492294599439a38cdf9a
