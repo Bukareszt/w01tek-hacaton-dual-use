@@ -1,0 +1,30 @@
+# Bind-mounts this experiment into the running wojtek_robot container without
+# editing ros/docker/compose.yaml (D-02). Invoked from ros/docker/ as:
+#   docker compose -f compose.yaml \
+#                   -f ../../experiments/wojtek_rai_v1/docker/compose.override.yaml \
+#                   up -d
+# (see run.sh's `container` target). Docker Compose resolves every relative
+# path in a multi-file stack against the directory of the FIRST -f file, not
+# this file's own directory -- so from ros/docker/, `../../experiments/
+# wojtek_rai_v1` is exactly experiments/wojtek_rai_v1/. Writing `../` here
+# would silently bind-mount ros/ itself into the container instead; verify
+# with `docker compose ... config` before trusting a change to this path.
+#
+# This is a bind mount of a directory that already exists on the host, not a
+# named volume, so it survives container recreation: the RAI venv, uv cache
+# and colcon overlay built inside the container (D-03) all live under this
+# same mount and persist across `up`/`down` cycles exactly like ros/src does
+# for the production packages. Without this mount, nothing under
+# experiments/wojtek_rai_v1 is visible inside the container -- run.sh's
+# install/build/agent-topics targets would fail immediately with "No such
+# file or directory".
+#
+# No `environment:` block here on purpose (D-04): ROS_DOMAIN_ID,
+# RMW_IMPLEMENTATION and CYCLONEDDS_URI are inherited unmodified from the
+# base wojtek_robot service. Redeclaring any of them here would risk
+# silently diverging this experiment's DDS domain from the simulation it
+# needs to discover topics on.
+services:
+  wojtek_robot:
+    volumes:
+      - ../../experiments/wojtek_rai_v1:/ros2_ws/experiments/wojtek_rai_v1

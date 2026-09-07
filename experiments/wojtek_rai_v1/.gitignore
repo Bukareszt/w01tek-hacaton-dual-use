@@ -1,0 +1,11 @@
+# Generated/arch-specific -- rebuilt independently on each machine (D-03).
+# uv.lock is NOT listed here: it is committed (D-07), the only real pin on
+# RAI's unconstrained langchain/langgraph transitives (D-08).
+.venv/
+.tools/
+.uv-cache/
+ros_ws/build/
+ros_ws/install/
+ros_ws/log/
+ros_ws/src/
+__pycache__/
