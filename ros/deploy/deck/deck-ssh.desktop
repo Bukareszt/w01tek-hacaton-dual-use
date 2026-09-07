@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Deck SSH on
+Comment=Start the user sshd so the PC can reach this Deck
+Exec=/home/deck/deck_link.sh sshd
+Icon=network-connect
+Terminal=false

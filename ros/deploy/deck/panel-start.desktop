@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Wojtek Panel
+Comment=Open the Wojtek deck panel
+Exec=/home/deck/panel_ctl.sh start
+Icon=/home/deck/.local/share/icons/wojtek-panel.svg
+Terminal=false
