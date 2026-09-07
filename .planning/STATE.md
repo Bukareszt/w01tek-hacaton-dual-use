@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Isolated RAI Environment
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-09-07T11:54:22.612Z"
-last_activity: 2026-09-05
-last_activity_desc: Roadmap created (5 phases, 23/23 v1 requirements mapped)
-state_head: e9d1af3385fb5048d957ae5c34d809b2a452a656
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-09-07T12:51:13.215Z"
+last_activity: 2026-09-07
+last_activity_desc: Phase 01 execution started
+state_head: 0679a3379696017dd2957948c977dbbc3a3b1e72
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-05)
 
 **Core value:** A text instruction typed to a RAI agent makes simulated Wojtek walk, navigate to a goal, and describe what its camera sees, using the production ROS 2 interfaces unchanged.
-**Current focus:** Phase 1 — Isolated RAI Environment
+**Current focus:** Phase 01 — Isolated RAI Environment
 
 ## Current Position
 
-Phase: 01 (Isolated RAI Environment) — READY TO EXECUTE
-Plan: 0 of TBD in current phase
+Phase: 01 (Isolated RAI Environment) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-09-05 — Roadmap created (5 phases, 23/23 v1 requirements mapped)
+Last activity: 2026-09-07 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 150 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -65,6 +70,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Velocity arbiter (MOT-02) sits inside Phase 3 before any agent-published motion — the agent never gets a direct path to `cmd_vel`
 - [Roadmap]: Vision (Phase 4) precedes navigation (Phase 5) — the robot-state/pose tool is evidence navigation needs, and it defers the highest-risk work
 - [Roadmap]: Phase 2 creates the single ReAct agent and its tool registry; Phases 3-5 register tools into it
+- [Phase 01]: Task 1 checkpoint: run.sh owns the wojtek_robot container lifecycle (option-a), replicating ros/sim.sh's/ros/dev.sh's platform-detection branch, to keep zero edits under ros/
 
 ### Pending Todos
 
@@ -88,6 +94,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-07T10:58:59.244Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-isolated-rai-environment/01-CONTEXT.md
+Last session: 2026-09-07T12:51:13.178Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
