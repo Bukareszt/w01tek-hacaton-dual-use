@@ -133,6 +133,20 @@ body {
 .tag-r { right: var(--edge); }
 .tag-r.on { color: var(--accent-image); }
 
+/* ---- what the telemetry bridge feeds ------------------------------------ */
+/* On the robot there is no bridge, and an instrument full of dashes reads
+   worse than no instrument at all, so everything fed from it stays out of
+   the picture unless ?telemetry=on asks for it. The right-hand column keeps
+   its width when hidden -- visibility takes its scrim with it, and the speed
+   and mode block stays in the middle of the screen instead of sliding over
+   to fill the gap. */
+body:not(.telemetry) .bridge-fed { display: none; }
+body:not(.telemetry) .instruments.right.bridge-fed { display: flex; visibility: hidden; }
+/* With the gauges gone the left group holds only the log, and a column
+   told to stretch would draw a tall empty scrim above it. Bottom-align
+   the row instead, so each group is only as tall as what is in it. */
+body:not(.telemetry) .deck { align-items: flex-end; }
+
 /* ---- the lower third --------------------------------------------------- */
 /* One row across the bottom of the picture, above the button band: the two
    instrument groups at the ends and the glance numbers between them. They

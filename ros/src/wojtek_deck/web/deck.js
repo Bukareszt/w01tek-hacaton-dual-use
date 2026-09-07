@@ -7,12 +7,18 @@
 // screen; the reticle, horizon and detections are drawn on the overlay
 // canvas above it, and the instruments are laid over both.
 //
-// Query parameters: ?bridge=<url> for the telemetry bridge, ?det=off to
+// Query parameters: ?telemetry=on shows the instruments the bridge feeds
+// (off by default: no bridge, no numbers), ?bridge=<url> for the
+// telemetry bridge, ?det=off to
 // switch detection off, ?det=cpu or ?det=gpu to pin the detector's backend,
 // ?det=<ws url> for a detector in another process, ?detsrc=<url> to point
 // the camera and the detector at a still image.
 import { Bridge } from "./bridge.js";
 import { Bars, Strip } from "./charts.js";
+
+// The instruments the telemetry bridge feeds are off unless ?telemetry=on.
+const telemetry = new URLSearchParams(location.search).get("telemetry") === "on";
+if (telemetry) document.body.classList.add("telemetry");
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -58,7 +64,10 @@ function onGateway(m) {
   if (m.t === "hello") {
     height = m.height_default;
     $("policy").textContent = m.policy || "";
-    if (!bridge) startBridge(params.get("bridge") || `ws://${location.hostname}:${m.bridge_port}`);
+    // Without ?telemetry=on there is nothing on screen for the bridge to
+    // fill, so it is not opened at all -- no socket retrying every second
+    // against a robot that has no bridge running.
+    if (!bridge && telemetry) startBridge(params.get("bridge") || `ws://${location.hostname}:${m.bridge_port}`);
   } else if (m.t === "avail") {
     for (const b of document.querySelectorAll("[data-call]")) b.disabled = !m.svc[b.dataset.call];
   } else if (m.t === "svc") {

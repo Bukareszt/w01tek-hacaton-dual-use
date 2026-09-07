@@ -32,7 +32,7 @@
     <div class="brand">Wojtek</div>
     <div class="lamps">
       <span class="lamp" id="lamp-link">link</span>
-      <span class="lamp" id="lamp-bridge">bridge</span>
+      <span class="lamp bridge-fed" id="lamp-bridge">bridge</span>
       <span class="lamp" id="lamp-cam">cam —</span>
       <span class="lamp" id="lamp-pad">pad</span>
       <span class="lamp" id="lamp-det">det</span>
@@ -58,15 +58,15 @@
        glance between them. One row, so the three groups end level. -->
   <div class="deck">
   <section class="instruments left">
-    <div class="gauge">
+    <div class="gauge bridge-fed">
       <div class="head"><span class="kicker">attitude</span><span class="vals"><span id="att-r">roll —</span><span id="att-p">pitch —</span></span></div>
       <canvas id="ch-att"></canvas>
     </div>
-    <div class="gauge">
+    <div class="gauge bridge-fed">
       <div class="head"><span class="kicker">gyro</span><span class="vals"><span id="gyro-z">— rad/s</span></span></div>
       <canvas id="ch-gyro"></canvas>
     </div>
-    <div class="gauge">
+    <div class="gauge bridge-fed">
       <div class="head"><span class="kicker">command</span></div>
       <canvas id="ch-cmd"></canvas>
     </div>
@@ -75,12 +75,12 @@
 
   <!-- between them, above the thumbs: the two things worth a glance -->
   <div class="centre">
-    <div class="speed"><b id="speed">0.00</b><span class="unit">m/s</span></div>
+    <div class="speed bridge-fed"><b id="speed">0.00</b><span class="unit">m/s</span></div>
     <div class="drive" id="drive">idle</div>
   </div>
 
   <!-- bottom right: what the legs and the computer are doing -->
-  <section class="instruments right">
+  <section class="instruments right bridge-fed">
     <div class="gauge">
       <div class="head"><span class="kicker"><span id="eff-title">joint targets</span></span></div>
       <div class="plot"><canvas id="ch-eff"></canvas></div>
