@@ -34,10 +34,29 @@
 # one file is safe to expose: it is already public, committed, tracked
 # content that by design carries placeholder names only, never a real
 # value, and the mount is read-only so nothing inside the container can
-# edit the host's tracked copy. This is the only file from outside the
-# experiment directory this override ever mounts.
+# edit the host's tracked copy.
+#
+# Third mount, read-write: the entire repository root, at /ros2_ws/repo_root.
+# [Rule 2/3 deviation, plan 01-04] FOUND-01's guard test
+# (tests/test_isolation_boundary.py) has to scan ros/, training/ and the
+# repository's top-level shell entry points for a reference to this
+# experiment's name, and statically parse ros/deploy.sh's rsync sources --
+# none of which are otherwise visible inside the container under D-02's two
+# mounts above. This mirrors the .env.example precedent (one additional,
+# narrowly-justified mount so the container's only real execution path,
+# run.sh test, can actually run the guard it exists to run) but needs
+# write access too: the guard's own fail-first boundary demonstration has
+# to create a temporary probe file one directory level outside the
+# experiment (a sibling under experiments/, not inside wojtek_rai_v1/) to
+# prove the scan actually catches a real violation there, and no other
+# mount reaches that path. Marginal risk over the mounts this service
+# already carries is small: the container is already privileged (see
+# `privileged: true` above in the base compose file) with direct host
+# /dev, ~/.ssh (ro) and a read-write ros/src mount; this adds one more
+# read-write view of the same host checkout, used only by this test suite.
 services:
   wojtek_robot:
     volumes:
       - ../../experiments/wojtek_rai_v1:/ros2_ws/experiments/wojtek_rai_v1
       - ../../.env.example:/ros2_ws/.env.example:ro
+      - ../..:/ros2_ws/repo_root
