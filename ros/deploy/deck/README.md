@@ -194,6 +194,11 @@ The robot stops when the sticks go quiet for half a second. The gateway
 holds that timer, so a dropped wifi link stops the robot rather than
 latching the last command.
 
+The robot's own Xbox pad can stay plugged in. Its teleop publishes only
+while its sticks are deflected and goes quiet two seconds after they
+return to centre, so an idle pad does not talk over the Deck. Two people
+driving at once still fight; nothing arbitrates that.
+
 Arming refuses while any joint sits more than 0.15 rad from the home pose.
 The panel prints the refusal in its log.
 
@@ -209,6 +214,7 @@ The panel prints the refusal in its log.
 | a dash in every instrument | the bridge is not running | leave `?telemetry=on` off |
 | the panel covers the whole screen | it is in full screen | tap `FULL`, which now reads `WINDOW` |
 | nothing on screen responds | the page is stuck | run `./ros/deck.sh reload` |
+| the robot stutters while driving | two sources on `/cmd_vel` | `ros2 topic info -v /cmd_vel` on the robot; only one node may drive |
 
 A reboot of the robot wipes `/tmp` and stops both processes. The installed
 files live in `$HOME` and survive it. Start again from step 5.

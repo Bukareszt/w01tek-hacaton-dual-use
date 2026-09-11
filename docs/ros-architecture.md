@@ -269,6 +269,14 @@ zmienia.
 **Node: `gamepad_teleop`** — lewy drążek vx/yaw, prawy strafe, A = arm,
 Y/B = stand_up/lie_down, D-pad = wysokość; skalowanie do boxa komend z
 kontraktu polityki, dead-man `cmd_timeout_s` (0.5 s) po zaniku `joy`.
+Publikuje tylko, gdy ktoś jedzie: driver `joy` powtarza stan
+bezczynnego pada bez końca, ale drążki w martwej strefie nie są wejściem.
+Po ich puszczeniu (albo po zaniku `joy`) leci zerowy Twist przez 2 s i
+węzeł milknie, tą samą regułą co `text_commander` i bramka Decka — inaczej
+pad leżący obok robota nadpisywałby komendy Decka 20 razy na sekundę.
+Krok wysokości (LB/RB) liczy się jako wejście, żeby nowa nastawa doszła do
+polityki przy drążkach w spoczynku. Czysta logika (`PadDrive`,
+`pad_drive.py`) jest testowana bez ROS-a (`test/test_pad_drive.py`).
 
 **Node: `text_commander`** (#92) — zamraża ROS-owy kontrakt przyszłego
 VLM-a: VLM konsumuje `/camera/camera/color/image_raw`, publikuje
