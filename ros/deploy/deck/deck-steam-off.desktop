@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Steam off (pad)
+Comment=Close Steam so the browser can read the controller
+Exec=/home/deck/deck_link.sh steam-off
+Icon=input-gaming
+Terminal=false

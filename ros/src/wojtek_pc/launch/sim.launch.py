@@ -7,6 +7,7 @@ virtual camera, RViz, the operator console and optionally a gamepad.
     ros2 launch wojtek_pc sim.launch.py [hw:=mock|mujoco] [rviz:=false]
                                        [boot_pose:=folded] [camera:=false]
                                        [console:=web|qt|none] [gamepad:=true]
+                                       [telemetry:=true] [deck:=false]
 
 This is `robot.launch.py` with the hardware plugin swapped -- same
 controller_manager at 400 Hz, same broadcasters, same real_io_node, same
@@ -42,9 +43,24 @@ text_commander (wojtek#92) is always up: text commands on /wojtek/nav_command
 dead-man. Resident by design -- it publishes NOTHING until commanded and goes
 silent after its single stop Twist, so it never fights the other teleops.
 
+deck:=true (the default here) also serves the deck panel on
+http://localhost:8090 -- the handheld cockpit from wojtek_deck: camera,
+pad, and charts read from the Foxglove bridge (viz.launch.py foxglove:=true).
+
 camera:=false turns off the D435-compatible virtual camera (on by default;
 the off-switch for weak machines). It needs a physics-backed plant, so it is
 inert with hw:=mock. camera_depth_hz/camera_color_hz tune the render rates.
+
+The world the camera draws is config/scene_sim.xml: the training scene plus
+a ball, a fire hydrant, a traffic light, a stop sign, a clock and a person
+standing around the spawn, so the deck panel's detector has something to
+name. The plant loads the same file, so they are solid. model_xml:= takes
+you back to the empty floor (config/scene_mjx.xml) or anywhere else.
+
+telemetry:=true adds /wojtek/sysinfo and /wojtek/policy_timing, the same
+opt-in the robot service uses. It is off by default here too. The Foxglove bridge
+stays with viz.launch.py in a simulation, so leave foxglove:= alone unless
+nothing else holds port 8765.
 """
 
 import os
@@ -102,7 +118,9 @@ def generate_launch_description():
                         "'", LaunchConfiguration("model_xml"), "' or ",
                         repr(os.path.join(
                             get_package_share_directory("wojtek_pc"),
-                            "config", "scene_mjx.xml",
+                            # Same default the plant gets in
+                            # launch_common: one scene, one physics state.
+                            "config", "scene_sim.xml",
                         )),
                     ]),
                     "depth_hz": ParameterValue(

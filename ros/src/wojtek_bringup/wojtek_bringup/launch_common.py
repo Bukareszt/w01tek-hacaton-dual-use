@@ -1,7 +1,8 @@
 """Shared launch body for every bringup: the real robot and the simulation.
 
-One node set (ros2_control + real_io_node + policy_node + rsp + bag), one set
-of parameters, one arming procedure. The launch files differ only in:
+One node set (ros2_control + real_io_node + policy_node + rsp, plus the bag,
+the telemetry and a Foxglove bridge when a run asks for them), one set of
+parameters, one arming procedure. The launch files differ only in:
 
   hardware      "real" = MD80 over CAN + the I2C IMU; "sim" = the same graph
                 with the hardware plugin swapped for a simulated one, from
@@ -19,7 +20,10 @@ them import wojtek_policy.policy_source makes this sibling module importable.
 import datetime
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -40,6 +44,18 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 from wojtek_policy.policy_source import active_policy, load_policy
+
+
+def _cpu_prefix(context, arg):
+    """A taskset prefix from a comma list of cores, or nothing when empty.
+
+    The RPi service starts this whole tree under `taskset -c 2,3` and every
+    child inherits that mask. This moves anything that is not the control
+    loop back to the other cores. The bag recorder and the perception
+    pipeline get the same treatment.
+    """
+    cpus = LaunchConfiguration(arg).perform(context)
+    return [f"taskset -c {cpus}"] if cpus else None
 
 
 def _launch_setup(context, with_rviz, hardware):
@@ -99,7 +115,7 @@ def _launch_setup(context, with_rviz, hardware):
             " boot_pose:=", LaunchConfiguration("boot_pose"),
             " model_xml:=" + (
                 LaunchConfiguration("model_xml").perform(context)
-                or os.path.join(pc_share, "config", "scene_mjx.xml")
+                or os.path.join(pc_share, "config", "scene_sim.xml")
             ),
         ]
     robot_description = ParameterValue(
@@ -196,6 +212,11 @@ def _launch_setup(context, with_rviz, hardware):
                     "soft_start_s": 2.0,
                     "clamp_knee": True,
                     "watchdog_timeout_s": 0.2,
+                    # Same switch as the sysinfo node above, so one argument
+                    # turns both topics on together.
+                    "publish_timing": ParameterValue(
+                        LaunchConfiguration("telemetry"), value_type=bool
+                    ),
                 }
             ],
             # IMU needs no remap: policy_node subscribes the broadcaster's
@@ -204,7 +225,39 @@ def _launch_setup(context, with_rviz, hardware):
                 ("joint_states", "wojtek/joint_states_abs"),
             ],
         ),
+        # How the computer itself is doing: CPU, memory, SoC temperature,
+        # throttling, free space and wifi traffic on /wojtek/sysinfo. It
+        # reports free space on the disk the bag goes to, so it takes
+        # bag_dir.
+        Node(
+            package="wojtek_telemetry",
+            executable="sysinfo_node",
+            output="screen",
+            parameters=[{"disk_path": LaunchConfiguration("bag_dir")}],
+            prefix=_cpu_prefix(context, "sysinfo_cpus"),
+            condition=IfCondition(LaunchConfiguration("telemetry")),
+        ),
     ]
+
+    # A websocket bridge on the robot itself, so watching a run in Foxglove
+    # needs nothing running on the PC. The bridge is a separate apt package.
+    # When it is missing, log a line and bring the rest up anyway.
+    if LaunchConfiguration("foxglove").perform(context).lower() in ("true", "1"):
+        try:
+            get_package_share_directory("foxglove_bridge")
+        except PackageNotFoundError:
+            print(">> foxglove_bridge is not installed -- no live Foxglove "
+                  "link (apt install ros-$ROS_DISTRO-foxglove-bridge)")
+        else:
+            nodes.append(
+                Node(
+                    package="foxglove_bridge",
+                    executable="foxglove_bridge",
+                    parameters=[{"port": 8765}],
+                    prefix=_cpu_prefix(context, "foxglove_cpus"),
+                    output="screen",
+                )
+            )
 
     if with_rviz:
         nodes.append(
@@ -215,6 +268,29 @@ def _launch_setup(context, with_rviz, hardware):
                 condition=IfCondition(LaunchConfiguration("rviz")),
             )
         )
+
+    # The deck panel's robot-side gateway (wojtek_deck): the page, the
+    # command websocket with the dead-man, the MJPEG camera stream. Gets
+    # the resolved policy directory so its command box matches policy_node.
+    # deck_cpus keeps the JPEG encoder off the isolated RT cores on the RPi.
+    deck_cpus = LaunchConfiguration("deck_cpus").perform(context)
+    nodes.append(
+        Node(
+            package="wojtek_deck",
+            executable="deck_gateway",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("deck")),
+            prefix=f"taskset -c {deck_cpus}" if deck_cpus else None,
+            parameters=[
+                {
+                    "policy": str(loaded.directory),
+                    "port": ParameterValue(
+                        LaunchConfiguration("deck_port"), value_type=int
+                    ),
+                }
+            ],
+        )
+    )
 
     nodes.append(
         # bash -c: mkdir the parent (rosbag2 creates the bag dir itself but
@@ -299,6 +375,23 @@ def common_launch_description(
         # empty = inherit. The RPi service pins it to 0,1 to keep the
         # recorder's disk I/O off the control loop's isolated RT cores.
         DeclareLaunchArgument("bag_cpus", default_value=""),
+        # /wojtek/sysinfo and /wojtek/policy_timing: the state of the
+        # computer and the cost of each control tick. One switch for both, so
+        # a run either has the whole picture or none of it. Off for manual
+        # runs, same as the recorder; the RPi service opts in with
+        # telemetry:=true (wojtek-robot.service).
+        DeclareLaunchArgument("telemetry", default_value="false"),
+        # Cores for the system-info node. It reads a handful of counters a
+        # few times a second. That is small, but it still has no business on
+        # the isolated RT cores, so this one defaults to 0,1. Empty = inherit.
+        DeclareLaunchArgument("sysinfo_cpus", default_value="0,1"),
+        # foxglove_bridge on port 8765, so the native Foxglove app connects
+        # to the robot directly. Off for manual runs, like the recorder and
+        # the telemetry above. The RPi service opts in with foxglove:=true.
+        # A simulation session gets its bridge from viz.launch.py instead,
+        # and two of them would fight over the port.
+        DeclareLaunchArgument("foxglove", default_value="false"),
+        DeclareLaunchArgument("foxglove_cpus", default_value="0,1"),
     ]
     if hardware == "real":
         args += [
@@ -327,7 +420,8 @@ def common_launch_description(
                 choices=["mock", "mujoco"],
             ),
             # Physics scene for hw:=mujoco; empty = the plugin's default
-            # (scene_mjx.xml shipped by wojtek_pc).
+            # (scene_sim.xml shipped by wojtek_pc: the training scene plus
+            # the props the camera and its detector have something to see in).
             DeclareLaunchArgument("model_xml", default_value=""),
         ]
     if with_rviz:
@@ -396,6 +490,14 @@ def common_launch_description(
             }.items(),
             condition=IfCondition(LaunchConfiguration("perception")),
         ),
+        # The deck panel (wojtek_deck): a browser cockpit for a handheld on
+        # the robot's wifi. On in the simulation (open http://localhost:8090),
+        # opt-in on the robot (deck:=true deck_cpus:=0,1 in the service).
+        DeclareLaunchArgument(
+            "deck", default_value="true" if hardware == "sim" else "false",
+        ),
+        DeclareLaunchArgument("deck_port", default_value="8090"),
+        DeclareLaunchArgument("deck_cpus", default_value=""),
         OpaqueFunction(
             function=_launch_setup,
             kwargs={"with_rviz": with_rviz, "hardware": hardware},

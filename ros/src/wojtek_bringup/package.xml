@@ -25,6 +25,9 @@
        "packages-up-to wojtek_bringup" build, so gamepad:=true has the
        node available on the RPi. -->
   <exec_depend>wojtek_teleop</exec_depend>
+  <!-- Deck panel gateway (robot.launch.py deck:=true): same reasoning, the
+       exec_depend is what ships it to the RPi. -->
+  <exec_depend>wojtek_deck</exec_depend>
   <!-- Camera pipeline (perception:=true). Same reason as wojtek_teleop: the
        exec_depend is what pulls it into deploy.sh's "packages-up-to
        wojtek_bringup" build, so the RPi has it at all. -->
@@ -54,6 +57,14 @@
   <exec_depend>ros2bag</exec_depend>
   <exec_depend>rosbag2_transport</exec_depend>
   <exec_depend>rosbag2_storage_default_plugins</exec_depend>
+  <!-- sysinfo_node runs in every bringup (launch_common.py). wojtek_policy
+       already pulls it in for the messages, but this launch starts the node
+       itself. -->
+  <exec_depend>wojtek_telemetry</exec_depend>
+  <!-- foxglove:=true, the default on the robot, starts the bridge on port
+       8765 so a Foxglove session watches the robot with no PC in the loop.
+       A build without the package launches without the bridge. -->
+  <exec_depend>foxglove_bridge</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

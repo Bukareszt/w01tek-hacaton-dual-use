@@ -1,0 +1,235 @@
+# wojtek_deck — the deck panel
+
+A browser cockpit for a handheld on the robot's wifi (a Steam Deck is the
+target, any laptop or phone works), and the one robot-side process it needs.
+
+```
+handheld (browser)                          robot (RPi)
+  page + charts + pad  --ws /ws-->            deck_gateway   --> /cmd_vel, services
+                       <--mjpg /stream.mjpg-- deck_gateway   <-- camera colour
+                       <--ws :8765----------- foxglove_bridge <-- every topic
+  detector (in the page)                      deck_gateway   <-- /det/ assets
+```
+
+Three links, three jobs:
+
+- **Commands** go through `deck_gateway` (`/ws`, JSON). The dead-man lives
+  in the gateway, on the robot: sticks arrive as normalized frames, and when
+  they stop for 0.5 s the gateway zeroes `/cmd_vel` for two seconds and then
+  goes silent. This is the point of having a robot-side process at all.
+  `policy_node` latches the last command it saw, so a dead-man on the far
+  side of a wifi link would protect nothing.
+- **Camera** is the gateway's MJPEG stream (`/stream.mjpg`), shown in a plain
+  `<img>`. The detector reads its frames out of that same image rather than
+  opening a second stream, so detection costs the wifi nothing.
+- **Charts** read `foxglove_bridge` directly (`bridge.js` + `cdr.js`, a small
+  ros2msg/CDR decoder, no library). Nothing on the robot changes to add a
+  chart: subscribe to the topic in `deck.js`.
+
+Everything is served from the robot; the page loads no fonts or scripts
+from the internet, because the robot's access point has none.
+
+## Run
+
+Simulation (the gateway is on by default there):
+
+```bash
+./ros/sim.sh                                   # or inside ./ros/dev.sh:
+ros2 launch wojtek_pc sim.launch.py            # deck:=true is the default;
+                                               # telemetry:=true fills the systems panel
+ros2 launch wojtek_pc viz.launch.py foxglove:=true rviz:=false   # the charts' source
+```
+
+Open <http://localhost:8090>. A handheld on the same LAN uses the machine's
+address instead of `localhost`; the page finds the bridge on the same host,
+port 8765 (`?bridge=ws://host:port` overrides).
+
+Robot: `robot.launch.py deck:=true deck_cpus:=0,1`, plus `foxglove:=true
+telemetry:=true` for the charts (the RPi service already passes those two;
+the deck itself stays opt-in there). The handheld joins the robot's access
+point and opens `http://10.42.0.2:8090`.
+
+Docker note: the dev image needs a rebuild once for the new package's
+dependencies (`python3-aiohttp`): `docker compose build` in `ros/docker`.
+
+## Controls
+
+| input | action |
+|---|---|
+| left stick | forward/back, turn |
+| right stick | strafe |
+| A / Y / B | arm toggle / stand up / lie down |
+| LB / RB | stance height −/+ 5 mm |
+| D-pad up / left / right / down | paw wave / bow / sit / shake |
+| W S A D Q E, arrows | drive from a keyboard (desk testing) |
+| space | stop |
+
+The pad is read in the browser (Gamepad API), the same mapping as
+`wojtek_teleop/gamepad_teleop.py`. Buttons on the page cover the same
+services for a touchscreen.
+
+On a Steam Deck the pad only reaches the browser one of two ways. With
+Steam running, Steam owns the controller and the desktop gets Steam's
+"desktop" layout, which is a mouse and a keyboard, not a pad; the browser
+sees a pad only once that layout is switched to a gamepad template. With
+Steam closed, the kernel driver exposes the controller itself, which the
+browser reports without a standard layout and with the buttons in the
+driver's order. `deck.js` carries that order too, so both ways work; the
+log line at connect says which one the page got.
+
+## Detection
+
+The panel finds objects in the camera picture and draws a box around each
+one: the accent red for a person, plain white for everything else. It is on
+by default and needs nothing running anywhere else.
+
+It runs **in the page**, on the handheld. YOLOX-nano goes through
+onnxruntime-web in a worker (`det_worker.js`), on the GPU through WebGPU
+where the browser has it and on the CPU where it does not. The robot is not
+asked for anything, which is the whole point: the RPi is already spending
+its cores on the control loop, and the handheld is the machine with a GPU
+sitting idle. The wifi does not notice either, because the frames come off
+the camera image the page is already showing — there is no second stream.
+
+Measured on a laptop at 416x416: about 10 ms a frame on WebGPU and 44 ms on
+the CPU. The page asks for a frame at most every 66 ms, so both keep up.
+
+`yolox.js` is the arithmetic on its own — reading the network's numbers into
+boxes, throwing away the duplicates, scaling back to the camera's pixels —
+so it can be tested from node. `yolox.json` holds the settings and the class
+names.
+
+### The assets
+
+The network and the runtime are other people's binaries, tens of megabytes,
+and they are not committed. Fetch them:
+
+```bash
+ros/src/wojtek_deck/fetch_assets.sh          # into ros/deck_assets/
+```
+
+That store works like the policy store: it sits next to the workspace's
+`src/`, the script pins the hash of both downloads, and `deploy.sh` runs it
+and rsyncs the result to the robot, which has no internet. The gateway
+serves the store at `/det/`. Without it the panel is the panel it always
+was, minus the boxes, and says so once in the log.
+
+`yolox_nano.onnx` is YOLOX (Megvii, Apache-2.0); the rest is
+onnxruntime-web (Microsoft, MIT). `LICENSES.txt` in the store says so too.
+
+The gateway sends `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` on every response, which is
+what a browser wants before it hands a page shared memory. Everything the
+panel loads is same-origin, so nothing else had to change.
+
+### Switches
+
+| query | what it does |
+|---|---|
+| `?det=off` | no detection |
+| `?det=cpu` / `?det=gpu` | pin the backend (default: try the GPU, fall back to the CPU) |
+| `?det=ws://host:port` | boxes from a detector in another process, below |
+| `?detsrc=<url>` | a still image in the shard instead of the camera |
+
+`?detsrc=` is for testing the detector without pointing a robot at
+something interesting: drop a picture in the asset store and open
+`?detsrc=/det/<name>`. It has to be same-origin — the page is cross-origin
+isolated, so a picture from elsewhere will not load at all.
+
+The GPU path gets a deadline: if the first frame has not come back within
+8 s the worker is thrown away and started again on the CPU, and the log
+says so. That covers a browser whose WebGPU takes the session and then
+never answers. The first WebGPU run in a fresh browser profile can also be
+slow while the shaders compile once; after that it is quick.
+
+### A detector somewhere else
+
+`?det=ws://...` puts the page back on an outside detector, kept as an
+escape hatch for anything the in-page one cannot do (a bigger network on a
+laptop, a tracker with its own state). It sends one JSON frame per pass,
+coordinates in pixels of the frame it looked at, and reads those frames from
+`http://<robot>:8090/stream.mjpg` itself:
+
+```json
+{"t": "det", "w": 640, "h": 360,
+ "boxes": [{"x": 10, "y": 20, "w": 100, "h": 200, "label": "person", "p": 0.91}]}
+```
+
+## Tests
+
+```bash
+pytest ros/src/wojtek_deck/test          # the drive gate (dead-man), no ROS
+node --test ros/src/wojtek_deck/web/test # the CDR decoder and the YOLOX maths
+```
+
+## The look
+
+### Where things sit
+
+The camera picture is the page. It fills the screen, and every instrument
+is laid on top of it, because the screen is small and the picture is the
+thing the operator is actually looking at. The handheld it is drawn for is
+1280 by 800, held in two hands, so the middle of the picture stays clear
+and everything else keeps to the edges:
+
+```
+ mark WOJTEK   link bridge cam pad det   policy   H  clock  full reload
+ fwd cam · fps                                          objects · people
+
+                          reticle, heading,
+                        horizon, detection boxes
+
+ ┌ attitude ───────┐      ┌ speed ──┐        ┌ joint effort ────┐
+ │ gyro            │      │ mode    │        │ systems          │
+ │ command         │      └─────────┘        │ cpu soc wifi tick│
+ │ last three log lines │                    │ power            │
+ └──────────────────┘                        └──────────────────┘
+ arm zero stand lie policy reset   paw bow sit shake        h− h+
+```
+
+Top and bottom are bands: who this is and whether the links are up along
+the top, the services along the bottom edge where the thumbs already rest.
+The buttons are pills at least 48 px tall, which is what a thumb needs on
+a touch screen. Between the bands sit three groups on one line — how the
+body is moving on the left, what the legs and the computer are doing on
+the right, and the two numbers worth a glance, speed and mode, in the
+middle. They are one row in the markup, so they finish level without
+anyone counting pixels.
+
+The two words at the far end of the top band are the only controls that
+are not for the robot, which is why they are drawn as lamps rather than as
+pills and sit as far from Arm as the screen allows. **Full** fills the
+screen and gives it back — the handheld has no keyboard, so this is F11;
+in a window there is a frame to minimise and close with a finger, and with
+none there is no way out at all. **Reload** loads the page again, which is
+F5. Full follows the actual state rather than the last press, so it says
+"window" whenever the screen is filled, however that happened. A page may
+only ask for the whole screen while a finger is on it, so the panel always
+opens in a window and the first tap is yours.
+
+### Colours and faces
+
+Everything stands on a photo, so the panel is in the dark half of the
+Machinekind design system: white text at three strengths, regions told
+apart by 1px hairlines rather than boxes, no frames, no shadows, no glow,
+no gradients. Each group sits on a flat ink scrim at 72% — one colour at
+one opacity, no blur, no fade at the edges — which is what keeps white
+text readable whether the camera is pointed at a dark room or a white
+wall. Enough of the picture still comes through the scrim to see what is
+behind a group.
+
+There is one accent, the soft red `#d86a6a`, the red the system allows on
+ink, and it marks the thing worth looking at: the joint working hardest, a
+refused command, a person in the picture. Brand red `#bd3e3e` at full
+strength is only ever a fill — the armed button, the dead-man frame around
+the whole screen — and the mark keeps its own red.
+
+Three faces with three jobs, served from the robot (`web/fonts/`,
+fontsource 5.3.0 builds, SIL Open Font License; latin-ext is in, it
+carries the Polish letters): Big Shoulders Display carries the WOJTEK
+title and the mode word, IBM Plex Sans carries words a person reads, IBM
+Plex Mono carries measurement: rates, angles, counts, the clock, the log.
+
+`web/mark.svg` and `web/favicon.svg` are the Machinekind mark from the
+brand kit: the mark in its red variant, and the favicon on its red field
+because at 16 px the knot needs it.

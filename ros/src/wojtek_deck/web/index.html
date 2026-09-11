@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<!-- The deck panel, served by wojtek_deck/deck_gateway.py. Self-contained:
+     the fonts sit next to this file and nothing is fetched from the network,
+     because the robot's wifi has no internet. Charts read foxglove_bridge
+     directly (bridge.js), commands go to the gateway (/ws), the camera is
+     the gateway's MJPEG stream.
+
+     The camera fills the screen and everything else is laid on top of it.
+     The picture is the page; the instruments are a few small groups near
+     the edges, so the middle stays clear to look through. The reticle,
+     the horizon and the detection boxes are drawn on the overlay canvas
+     (deck.js). Colours and faces are the Machinekind design system, in its
+     dark context, because the text stands on a photo. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Wojtek deck</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="deck.css">
+</head>
+<body>
+<div class="screen" id="viewport">
+  <img id="cam" alt="" src="stream.mjpg">
+  <canvas id="overlay"></canvas>
+
+  <!-- top edge: who this is, and whether the links are up -->
+  <header class="top">
+    <!-- The Machinekind mark from the brand kit, the red variant. -->
+    <img class="mark" src="mark.svg" alt="Machinekind" onerror="this.style.visibility='hidden'">
+    <div class="brand">W01-TEK</div>
+    <div class="lamps">
+      <span class="lamp" id="lamp-link">link</span>
+      <span class="lamp bridge-fed" id="lamp-bridge">bridge</span>
+      <span class="lamp" id="lamp-cam">cam —</span>
+      <span class="lamp" id="lamp-pad">pad</span>
+      <span class="lamp" id="lamp-det">det</span>
+    </div>
+    <span class="policy" id="policy"></span>
+    <div class="readouts">
+      <span>H <b id="height">—</b> m</span>
+      <span id="hud-clock"></span>
+      <!-- The panel runs on a handheld with no keyboard, so the two things
+           F11 and F5 would do have to be on the page itself. Full puts the
+           picture on the whole screen and takes it back off, which is the
+           only way to reach the window's own frame with a finger. -->
+      <button class="chip" id="fullscreen" title="fill the screen">full</button>
+      <button class="chip" id="reload" title="load the panel again">reload</button>
+    </div>
+  </header>
+
+  <!-- just under the masthead: what the camera and the detector are doing -->
+  <div class="tag tag-l" id="hud-cam">fwd cam · —</div>
+  <div class="tag tag-r" id="hud-det">no detector</div>
+
+  <!-- The lower third: instruments left and right, the two numbers worth a
+       glance between them. One row, so the three groups end level. -->
+  <div class="deck">
+  <section class="instruments left">
+    <div class="gauge bridge-fed">
+      <div class="head"><span class="kicker">attitude</span><span class="vals"><span id="att-r">roll —</span><span id="att-p">pitch —</span></span></div>
+      <canvas id="ch-att"></canvas>
+    </div>
+    <div class="gauge bridge-fed">
+      <div class="head"><span class="kicker">gyro</span><span class="vals"><span id="gyro-z">— rad/s</span></span></div>
+      <canvas id="ch-gyro"></canvas>
+    </div>
+    <div class="gauge bridge-fed">
+      <div class="head"><span class="kicker">command</span></div>
+      <canvas id="ch-cmd"></canvas>
+    </div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <!-- between them, above the thumbs: the two things worth a glance -->
+  <div class="centre">
+    <div class="speed bridge-fed"><b id="speed">0.00</b><span class="unit">m/s</span></div>
+    <div class="drive" id="drive">idle</div>
+  </div>
+
+  <!-- bottom right: what the legs and the computer are doing -->
+  <section class="instruments right bridge-fed">
+    <div class="gauge">
+      <div class="head"><span class="kicker"><span id="eff-title">joint targets</span></span></div>
+      <div class="plot"><canvas id="ch-eff"></canvas></div>
+      <div class="row hot"><span class="k" id="eff-name">—</span><span id="eff-val">—</span></div>
+    </div>
+    <div class="gauge systems">
+      <div class="head"><span class="kicker">systems</span></div>
+      <div class="row"><span class="k">cpu</span><span id="sys-cpu">—</span></div>
+      <div class="bar"><i id="bar-cpu"></i></div>
+      <div class="row"><span class="k">soc</span><span id="sys-soc">—</span></div>
+      <div class="bar"><i id="bar-soc"></i></div>
+      <div class="row"><span class="k">wifi tx</span><span id="sys-wifi">—</span></div>
+      <div class="bar"><i id="bar-wifi"></i></div>
+      <div class="row"><span class="k">tick</span><span id="sys-tick">—</span></div>
+      <div class="row warn" id="sys-flags"><span class="k">power</span><span id="sys-flag">—</span></div>
+    </div>
+  </section>
+  </div>
+
+  <!-- bottom edge, under the thumbs: the services -->
+  <div class="controls">
+    <button data-call="arm" id="btn-arm">arm</button>
+    <button data-call="zero">zero</button>
+    <button data-call="stand_up">stand</button>
+    <button data-call="lie_down">lie</button>
+    <button data-call="enable" id="btn-enable">policy</button>
+    <button data-call="reset">reset</button>
+    <span class="sep"></span>
+    <button class="trick" data-call="trick_paw_wave">paw</button>
+    <button class="trick" data-call="trick_bow">bow</button>
+    <button class="trick" data-call="trick_sit">sit</button>
+    <button class="trick" data-call="trick_shake">shake</button>
+    <span class="spacer"></span>
+    <button data-height="-0.005">h −</button>
+    <button data-height="0.005">h +</button>
+  </div>
+</div>
+
+<script type="module" src="deck.js"></script>
+</body>
+</html>

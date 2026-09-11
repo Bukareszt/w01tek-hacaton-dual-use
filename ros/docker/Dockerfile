@@ -23,10 +23,12 @@ COPY ./src/md80_hardware_interface/package.xml ./src/md80_hardware_interface/pac
 COPY ./src/bmi160_serial_hardware_interface/package.xml ./src/bmi160_serial_hardware_interface/package.xml
 COPY ./src/bmx160_serial_hardware_interface/package.xml ./src/bmx160_serial_hardware_interface/package.xml
 COPY ./src/imu_i2c_hardware_interface/package.xml ./src/imu_i2c_hardware_interface/package.xml
+COPY ./src/wojtek_telemetry/package.xml ./src/wojtek_telemetry/package.xml
 COPY ./src/wojtek_policy/package.xml ./src/wojtek_policy/package.xml
 COPY ./src/wojtek_bringup/package.xml ./src/wojtek_bringup/package.xml
 COPY ./src/wojtek_pc/package.xml ./src/wojtek_pc/package.xml
 COPY ./src/wojtek_teleop/package.xml ./src/wojtek_teleop/package.xml
+COPY ./src/wojtek_deck/package.xml ./src/wojtek_deck/package.xml
 COPY ./src/magnetometer_broadcaster/package.xml ./src/magnetometer_broadcaster/package.xml
 COPY ./src/wojtek_perception_bringup/package.xml ./src/wojtek_perception_bringup/package.xml
 COPY ./src/wojtek_mujoco_hardware_interface/package.xml ./src/wojtek_mujoco_hardware_interface/package.xml
@@ -67,9 +69,10 @@ RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && \
         --packages-select wojtek_description md80_hardware_interface \
             bmx160_serial_hardware_interface bmi160_serial_hardware_interface \
             imu_i2c_hardware_interface \
+            wojtek_telemetry \
             wojtek_teleop wojtek_policy wojtek_bringup wojtek_pc magnetometer_broadcaster \
             wojtek_perception_bringup wojtek_mujoco_hardware_interface \
-            wojtek_benchmark \
+            wojtek_benchmark wojtek_deck \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
 
 # So an interactive `docker exec -it <container> bash` also has ROS +

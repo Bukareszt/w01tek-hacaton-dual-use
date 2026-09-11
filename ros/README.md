@@ -69,6 +69,48 @@ The operator console (drive pad, arm/pose buttons, jog, telemetry) is the
 phone on the robot's AP works too). Drive commands are dead-man guarded:
 if the page goes silent mid-drive, `/cmd_vel` is zeroed.
 
+**Deck panel** — the handheld cockpit (`wojtek_deck`, on by default in
+the sim): open <http://localhost:8090>. Camera, pad in the browser, charts
+straight from the Foxglove bridge (`--foxglove`), and the drive dead-man on
+the robot side. The panel also boxes what it sees in the camera, running
+YOLOX in the browser on the handheld rather than on the robot; that needs
+`src/wojtek_deck/fetch_assets.sh` once, which `deploy.sh` runs for you. See
+[`src/wojtek_deck/README.md`](src/wojtek_deck/README.md).
+
+**Things to look at** — the simulated world is not an empty floor. The
+training scene is a checkerboard plane and nothing else, which is what a
+walking policy needs and gives the panel's detector nothing to find, so the
+simulation loads `src/wojtek_pc/config/scene_sim.xml`: the same scene plus a
+few props standing around the spawn.
+
+| prop          | where it stands   | the panel names it from        |
+| ------------- | ----------------- | ------------------------------ |
+| sports ball   | ahead and left    | 1 to 3 m                       |
+| fire hydrant  | ahead and right   | 1 to 3 m (best inside 2 m)     |
+| stop sign     | left, turn ~55°   | 1 to 3 m (best inside 2 m)     |
+| traffic light | right, turn ~75°  | 1.5 to 3 m (too tall closer)   |
+| clock         | behind, turn ~160°| 1 to 3 m                       |
+| person        | straight ahead    | 5.5 m and further              |
+
+The props were picked by rendering the camera view and asking the panel's
+own YOLOX-nano what it saw; every one that stayed is named with better than
+even confidence over the range above, mostly 0.8 to 0.95. They are short
+because the camera sits 0.21 m off the floor looking 15° down — at two
+metres the top of the picture is only 0.75 m up — and the person stands far
+back for the same reason: from two metres away a person is a pair of legs
+and reads as nobody.
+
+The plant loads the same file, so the props are solid and the robot bumps
+into them. They are static bodies, so `/sim/qpos` has exactly the layout it
+had before and neither the policy nor the training model knows they exist.
+Their pictures are drawn by `config/props/make_textures.py`, committed next
+to it; run it only when you want a sign to look different. To walk the empty
+floor again, hand the launch the old scene:
+
+```bash
+./sim.sh model_xml:=/ros2_ws/install/wojtek_pc/share/wojtek_pc/config/scene_mjx.xml
+```
+
 **Text commands (the VLM contract, #92)**: the web console also shows the
 robot's colour camera and a `forward / left / right / stop` command panel —
 the browser is a human dry-run of the future VLM, which will watch
@@ -95,6 +137,11 @@ in a second shell — then open the native
 Foxglove as a panel — see
 [`foxglove/wojtek-console-panel`](foxglove/wojtek-console-panel/README.md)
 (`npm run local-install`, restart Foxglove, add the "Wojtek console" panel).
+
+There is a ready-made view to import once, in
+[`foxglove/layouts`](foxglove/layouts/README.md): temperature, throttling, CPU
+per core, policy tick time, drive command, joints, IMU and the console in one
+window.
 
 **Bluetooth Xbox pad**: left stick = vx/yaw, right stick left-right = strafe,
 **A** toggles arm, D-pad up/down steps the standing height; on the `joy`
@@ -209,6 +256,25 @@ Ctrl-C in the `robot` shell tears down both sides (stops the RT service + viz).
 Wind down gently first: disarm, then `ros2 service call /wojtek/lie_down
 std_srvs/srv/Trigger`.
 
+### Watching a run
+
+Two topics say how the run is going. `/wojtek/sysinfo` is the state of the
+computer: CPU per core, memory, SoC temperature, the Raspberry Pi throttle
+flags, free space where the bag is written, and wifi traffic.
+`/wojtek/policy_timing` is per control tick: how long the policy step took and
+how far apart the ticks landed. A run that records lands both in the bag with
+everything else, so a stutter can be matched against a hot or throttled Pi
+afterwards.
+
+`telemetry:=true` publishes the two topics. `foxglove:=true` opens a bridge on
+port 8765, so the native Foxglove app connects to the robot with nothing
+running on the PC. A manual `robot.launch.py` run has all of this off, the
+same way it does not record. Ask for what you want with `telemetry:=true
+foxglove:=true bag:=true`. The RPi service passes all three, so a
+service-driven run is watchable live and readable back afterwards. Import
+[`foxglove/layouts/robot-dashboard.json`](foxglove/layouts/README.md) to see
+it plotted.
+
 ## Layout
 
 | Path | What |
@@ -222,4 +288,5 @@ std_srvs/srv/Trigger`.
 | `deploy/rpi/`             | RPi provisioning: `install.sh`, network + service configs, `IMAGE.md`, `cloud-init/` |
 | `deploy/wojtek-robot.service` | RPi systemd unit (RT control stack) |
 | `src/`                    | ROS 2 packages (`wojtek_bringup`, `wojtek_policy`, `wojtek_pc`, hardware ifaces) |
+| `foxglove/`               | Foxglove extras: the console panel extension and the dashboard layout |
 | `docker/`                 | PC image + compose |
