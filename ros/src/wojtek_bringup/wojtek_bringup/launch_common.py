@@ -518,6 +518,12 @@ def common_launch_description(
             # one drive source at a time: with the pad on, leave the web
             # console's pad/drive alone, both publish the same /cmd_vel.
             DeclareLaunchArgument("gamepad", default_value="false"),
+            # Cores for the joy driver and the teleop node (the include
+            # picks this up as gamepad_cpus). Empty = wherever the tree
+            # runs; the service says 0,1, because on the isolated RT cores
+            # with no load balancing they shared one core with policy_node
+            # and real_io and took a fifth of it.
+            DeclareLaunchArgument("gamepad_cpus", default_value=""),
             IncludeLaunchDescription(
                 PathJoinSubstitution(
                     [
