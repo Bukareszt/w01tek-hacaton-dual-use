@@ -12,7 +12,16 @@ import pytest
 pytest.importorskip("rclpy")
 
 from wojtek_rai import limits  # noqa: E402
-from wojtek_rai.arm_switch import ARM_SERVICE, POLICY_SERVICE, set_armed, set_policy_enabled  # noqa: E402
+from wojtek_rai.arm_switch import (  # noqa: E402
+    ARM_SERVICE,
+    LIE_DOWN_SERVICE,
+    POLICY_SERVICE,
+    STAND_UP_SERVICE,
+    lie_down,
+    set_armed,
+    set_policy_enabled,
+    stand_up,
+)
 
 
 def _node(available=True, success=True, message="armed", done=True):
@@ -92,3 +101,17 @@ def test_policy_switch_calls_the_enable_service():
 
 def test_the_policy_service_stays_forbidden_for_the_llm_tools():
     assert POLICY_SERVICE in limits.FORBIDDEN
+
+
+def test_stand_up_and_lie_down_call_their_trigger_services():
+    from std_srvs.srv import Trigger
+
+    node, client, _ = _node(message="stand_up: ramping over 4.0 s")
+    ok, msg = stand_up(node, timeout=0.2)
+    assert (ok, msg) == (True, "stand_up: ramping over 4.0 s")
+    assert node.create_client.call_args.args == (Trigger, STAND_UP_SERVICE)
+
+    node, client, _ = _node(message="armed -- disarm before ramping", success=False)
+    ok, msg = lie_down(node, timeout=0.2)
+    assert not ok and "disarm before ramping" in msg
+    assert node.create_client.call_args.args == (Trigger, LIE_DOWN_SERVICE)
