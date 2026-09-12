@@ -19,7 +19,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from rai.communication.ros2 import ROS2Connector
 
 from wojtek_rai.agent import READ_ONLY, build_agent
-from wojtek_rai.arm_switch import set_armed
+from wojtek_rai.arm_switch import set_armed, set_policy_enabled
 from wojtek_rai.camera_feed import start_camera_feed
 from wojtek_rai.stream import TurnEvents, run_turn, text_of
 
@@ -123,29 +123,39 @@ class _Live:
         self.text_box.markdown(final_text if final_text else "")
 
 
-def _robot_panel() -> None:
-    """The operator's arm switch: the policy drives the motors only while
-    armed. Not an LLM tool (see wojtek_rai/arm_switch.py); the robot's own
-    checks (standing in the home pose) decide, and its answer is shown."""
-    st.subheader("Robot")
-    want = st.toggle(
-        "armed (policy drives the motors)",
-        value=st.session_state.get("armed", False),
-        key="arm_toggle",
-        help="Calls /wojtek/arm. Refused unless the robot stands in the home pose (say 'stand up' first).",
-    )
-    if want != st.session_state.get("armed", False):
-        ok, msg = set_armed(get_camera_feed().node, want)
+def _switch(label: str, state_key: str, default: bool, call, help_text: str) -> None:
+    """One operator switch backed by a SetBool service: flips the robot, shows
+    its answer, snaps back to the last confirmed state when refused."""
+    want = st.toggle(label, value=st.session_state.get(state_key, default), key=f"{state_key}_toggle", help=help_text)
+    if want != st.session_state.get(state_key, default):
+        ok, msg = call(get_camera_feed().node, want)
         if ok:
-            st.session_state["armed"] = want
-        st.session_state["arm_msg"] = ("ok" if ok else "err", msg)
+            st.session_state[state_key] = want
+        st.session_state[f"{state_key}_msg"] = ("ok" if ok else "err", msg)
         if not ok:
-            # The switch snaps back to the robot's real state on the rerun.
-            st.session_state["arm_toggle"] = st.session_state.get("armed", False)
+            st.session_state[f"{state_key}_toggle"] = st.session_state.get(state_key, default)
             st.rerun()
-    kind, msg = st.session_state.get("arm_msg", ("ok", ""))
+    kind, msg = st.session_state.get(f"{state_key}_msg", ("ok", ""))
     if msg:
         (st.success if kind == "ok" else st.error)(msg)
+
+
+def _robot_panel() -> None:
+    """The operator's switches, the same two gates the pad and the Deck flip:
+    the RL policy computes targets only while enabled (/wojtek/enable, on by
+    default on the real launch), and real_io lets them reach the motors only
+    while armed (/wojtek/arm, refused unless standing in the home pose). Not
+    LLM tools (wojtek_rai/arm_switch.py); the robot's answers are shown."""
+    st.subheader("Robot")
+    _switch(
+        "policy (RL gait computes targets)", "policy", True, set_policy_enabled,
+        "Calls /wojtek/enable. The real launch starts with it on; off = the policy holds and ignores /cmd_vel.",
+    )
+    _switch(
+        "armed (targets reach the motors)", "armed", False, set_armed,
+        "Calls /wojtek/arm. Refused unless the robot stands in the home pose (say 'stand up' first).",
+    )
+    st.caption("Switches show the last confirmed state; flip one to sync with the robot.")
     if st.session_state.get("armed", False):
         st.warning("ARMED: walk commands move the robot. Hand on power.")
 

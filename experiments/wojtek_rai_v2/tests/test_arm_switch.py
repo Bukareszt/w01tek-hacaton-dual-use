@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("rclpy")
 
 from wojtek_rai import limits  # noqa: E402
-from wojtek_rai.arm_switch import ARM_SERVICE, set_armed  # noqa: E402
+from wojtek_rai.arm_switch import ARM_SERVICE, POLICY_SERVICE, set_armed, set_policy_enabled  # noqa: E402
 
 
 def _node(available=True, success=True, message="armed", done=True):
@@ -78,3 +78,17 @@ def test_a_hung_call_times_out_and_still_cleans_up():
 def test_the_arm_service_stays_forbidden_for_the_llm_tools():
     assert ARM_SERVICE in limits.FORBIDDEN
     assert ARM_SERVICE not in limits.WRITABLE_SERVICES
+
+
+def test_policy_switch_calls_the_enable_service():
+    node, client, _ = _node(message="policy disabled")
+
+    ok, msg = set_policy_enabled(node, False, timeout=0.2)
+
+    assert (ok, msg) == (True, "policy disabled")
+    assert node.create_client.call_args.args[1] == POLICY_SERVICE
+    assert client.call_async.call_args.args[0].data is False
+
+
+def test_the_policy_service_stays_forbidden_for_the_llm_tools():
+    assert POLICY_SERVICE in limits.FORBIDDEN
