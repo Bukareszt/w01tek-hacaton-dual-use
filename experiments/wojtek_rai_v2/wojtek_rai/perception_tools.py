@@ -356,11 +356,13 @@ class GoToObjectTool(_DetectMixin, NavigateToPoseBlockingTool):
         return f"{_describe(best)}. Goal ({gx:.2f}, {gy:.2f}): {result}"
 
 
-def build_perception_tools(connector: ROS2Connector, perms: dict) -> List[Any]:
-    bounds = {"workspace_bounds_min": limits.WORKSPACE_MIN, "workspace_bounds_max": limits.WORKSPACE_MAX}
-    return [
-        FindObjectsTool(connector=connector, **perms),
-        GoToObjectTool(
+def build_perception_tools(connector: ROS2Connector, perms: dict, navigation: bool = True) -> List[Any]:
+    """find_objects always; go_to_object only where Nav2 can be driven
+    (navigation=False on a target without odometry)."""
+    tools: List[Any] = [FindObjectsTool(connector=connector, **perms)]
+    if navigation:
+        bounds = {"workspace_bounds_min": limits.WORKSPACE_MIN, "workspace_bounds_max": limits.WORKSPACE_MAX}
+        tools.append(GoToObjectTool(
             connector=connector, frame_id=limits.MAP_FRAME, action_name=limits.NAV_ACTION, **bounds, **perms
-        ),
-    ]
+        ))
+    return tools

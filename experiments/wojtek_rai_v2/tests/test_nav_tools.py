@@ -80,3 +80,23 @@ def test_load_places_without_a_standoff_or_places_section(tmp_path):
 def test_load_places_rounds_to_millimetres(tmp_path):
     places = load_places(_registry(tmp_path, "places:\n  a: {x: 1.23456, y: -0.00049}\n"))
     assert places["a"] == {"x": 1.235, "y": -0.0, "yaw": 0.0}
+
+
+def test_no_registry_means_no_places():
+    """WOJTEK_RAI_PLACES=none (the physical robot has no map yet) is not a file."""
+    assert load_places("none") == {}
+    assert load_places("") == {}
+
+
+def test_go_to_place_is_not_offered_without_a_registry(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from rai.communication.ros2 import ROS2Connector
+
+    from wojtek_rai.nav_tools import build_nav_tools
+    from wojtek_rai.tools import _permissions
+
+    monkeypatch.setattr(limits, "PLACES_FILE", "none")
+    names = {t.name for t in build_nav_tools(MagicMock(spec=ROS2Connector), _permissions())}
+    assert "go_to_place" not in names
+    assert "navigate_to_pose" in names

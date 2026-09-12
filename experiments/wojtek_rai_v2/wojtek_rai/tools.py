@@ -290,8 +290,10 @@ def build_tools(
     (camera, position, wait). read_only is the first-contact mode for the
     physical robot: the agent can look and report, nothing else. nav adds the
     Nav2 tools (needs the wojtek_nav container). odometry=False (the physical
-    robot, WOJTEK_RAI_ODOMETRY=0) drops the closed-loop turn tool and marks
-    the position tool as static."""
+    robot, WOJTEK_RAI_ODOMETRY=0) drops the closed-loop turn tool, every Nav2
+    tool (navigate_to_pose, go_to_place, go_to_object, map tools) and marks
+    the position tool as static; find_objects stays (bearing and distance
+    need no map)."""
     perms = _permissions()
     actuators: List[BaseTool] = [] if read_only else [
         WalkTool(connector=connector, **perms),
@@ -300,12 +302,17 @@ def build_tools(
         StandUpTool(connector=connector, **perms),
         LieDownTool(connector=connector, **perms),
     ]
-    if nav and not read_only:
-        from wojtek_rai.nav_tools import build_nav_tools
+    if not read_only:
         from wojtek_rai.perception_tools import build_perception_tools
 
-        actuators += build_nav_tools(connector, perms)
-        actuators += build_perception_tools(connector, perms)
+        # Nav2 needs odometry to track the robot: without it (the physical
+        # robot before N4) no tool may send a goal, whatever `nav` says.
+        navigation = nav and odometry
+        if navigation:
+            from wojtek_rai.nav_tools import build_nav_tools
+
+            actuators += build_nav_tools(connector, perms)
+        actuators += build_perception_tools(connector, perms, navigation=navigation)
     pose_description = {} if odometry else {"description": NO_ODOMETRY_POSE_DESCRIPTION}
     return actuators + [
         GetPoseTool(

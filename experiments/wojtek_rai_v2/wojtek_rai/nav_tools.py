@@ -190,8 +190,15 @@ class CancelNavigationTool(BaseROS2Tool):
         return "No navigation goal in progress."
 
 
+NO_REGISTRY = ("", "none")
+
+
 def load_places(path: str | Path = limits.PLACES_FILE) -> Dict[str, Dict[str, float]]:
-    """Named goals from the YAML registry, standoff applied: {name: {x, y, yaw}}."""
+    """Named goals from the YAML registry, standoff applied: {name: {x, y, yaw}}.
+    WOJTEK_RAI_PLACES=none (or empty) means no registry at all: the physical
+    robot has no map yet, so there is nothing to name."""
+    if str(path).strip().lower() in NO_REGISTRY:
+        return {}
     raw = yaml.safe_load(Path(path).read_text())
     default_standoff = float(raw.get("standoff", 0.0))
     out: Dict[str, Dict[str, float]] = {}
@@ -231,20 +238,24 @@ class GoToPlaceTool(_TimedNavMixin, NavigateToPoseBlockingTool):
 
 
 def build_nav_tools(connector: ROS2Connector, perms: Dict[str, List[str]]) -> List[BaseTool]:
-    places = load_places()
+    places = load_places(limits.PLACES_FILE)
     # No workspace_bounds_* kwargs: rai-core 2.12 has no such fields and
     # silently dropped them; the box is enforced in _TimedNavMixin._navigate.
-    return [
+    tools: List[BaseTool] = [
         GetMapPoseTool(
             connector=connector, frame_id=limits.MAP_FRAME, robot_frame_id=limits.BASE_FRAME, **perms
         ),
         NavigateToPoseTool(
             connector=connector, frame_id=limits.MAP_FRAME, action_name=limits.NAV_ACTION, **perms
         ),
-        GoToPlaceTool(
-            connector=connector, frame_id=limits.MAP_FRAME, action_name=limits.NAV_ACTION,
-            places=places, **perms,
-        ),
         CancelNavigationTool(connector=connector, **perms),
         GetMapImageTool(connector=connector, **perms),
     ]
+    if places:
+        # Without a registry the tool would only ever answer "unknown place";
+        # better not to offer it than to have the LLM guess names.
+        tools.insert(2, GoToPlaceTool(
+            connector=connector, frame_id=limits.MAP_FRAME, action_name=limits.NAV_ACTION,
+            places=places, **perms,
+        ))
+    return tools

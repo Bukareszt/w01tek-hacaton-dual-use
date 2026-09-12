@@ -127,3 +127,38 @@ def test_forbidden_names_are_never_writable(connector):
     for name in limits.FORBIDDEN:
         assert not tool.is_writable(name)
         assert not tool.is_readable(name)
+
+
+# --- the tool set per target (sim with Nav2 vs the physical robot) ------------
+
+
+def _names(tools):
+    return {t.name for t in tools}
+
+
+def test_without_odometry_no_tool_can_reach_nav2(connector):
+    """WOJTEK_RAI_ODOMETRY=0 (the physical robot): Nav2 is not running and has
+    nothing to track the robot with, so no tool may send it a goal. Looking
+    (find_objects, camera) and text-command walking stay."""
+    from wojtek_rai.tools import build_tools
+
+    names = _names(build_tools(connector, odometry=False))
+    assert {"walk", "stop", "stand_up", "lie_down", "find_objects", "get_camera_image"} <= names
+    nav2 = {"navigate_to_pose", "go_to_place", "go_to_object", "cancel_navigation", "turn", "get_map_pose", "get_map_image"}
+    assert names.isdisjoint(nav2)
+
+
+def test_with_odometry_the_nav2_tools_are_offered(connector):
+    from wojtek_rai.tools import build_tools
+
+    names = _names(build_tools(connector, odometry=True))
+    assert {"turn", "navigate_to_pose", "go_to_place", "go_to_object", "find_objects"} <= names
+
+
+def test_read_only_offers_nothing_that_moves(connector):
+    from wojtek_rai.tools import build_tools
+
+    names = _names(build_tools(connector, read_only=True))
+    assert "get_camera_image" in names
+    movers = {"walk", "stop", "stand_up", "lie_down", "turn", "navigate_to_pose", "go_to_object", "go_to_place"}
+    assert names.isdisjoint(movers)
