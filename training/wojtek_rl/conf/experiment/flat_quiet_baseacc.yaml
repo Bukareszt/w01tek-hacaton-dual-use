@@ -1,0 +1,34 @@
+# @package _global_
+# QUIET WALKING, baseacc arm (2026-08-13): the policy the robot has run
+# since 2026-08-13 (HF wojtek-quiet-locomotion @46b5f29 / main, run
+# wojtek_flat_quiet_baseacc_s0). RECORD, reconstructed 2026-09-12 -- the
+# preset was never committed and the run's run.json is not on HF, so two
+# sources fix it: the deploy contract (kp40/kd0.8/12 Nm, tau_ff +-3,
+# IMU-blind 40-dim actor, 24-wide action, action_filter 0) and the
+# base_accel commit (6ff736c: "measured at dose -0.02 on the kp40 keeper:
+# base shocks down 37-47% across every command with foot-quietness
+# intact and the best courses table of the project -- straight_slow 0.76,
+# spins 2.2-3.1, 1 fall/160; -0.05 kills fast, -0.032 sells the right
+# spin; the wz fade+floor knobs let a pivot pay a fraction").
+# ASSUMED, not recorded: the base_accel fade/floor pair mirrors the
+# feet_landing pair (0.1 / 0.6), and everything else is v10's recipe.
+# Anything that restores this checkpoint must keep the plant block; the
+# reward block is the fine-tune's own to set.
+# Usage:
+#   ./training/run.sh fetch-keeper --repo wojtek-quiet-locomotion@main \
+#     --experiment flat_quiet_baseacc --run-name wojtek_flat_quiet_baseacc_s0
+#   ./training/run.sh courses --run runs/wojtek_flat_quiet_baseacc_s0
+defaults:
+  - flat_quiet_v10
+
+task:
+  env:
+    pd_kp: 40.0
+    pd_kd: 0.8
+    reward:
+      base_accel_wz_fade: 0.1
+      base_accel_wz_floor: 0.6
+      scales:
+        base_accel: -0.02
+
+run_name: wojtek_flat_quiet_baseacc

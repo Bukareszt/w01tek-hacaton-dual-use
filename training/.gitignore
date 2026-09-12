@@ -32,3 +32,6 @@
 
 # Experiment tracking
 /wandb/
+# Keeper checkpoints materialized by fetch-keeper for a dispatch (runs/ never
+# leaves the machine; this directory does, and is never committed).
+/keepers/
