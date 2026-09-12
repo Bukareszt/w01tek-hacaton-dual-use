@@ -274,6 +274,18 @@ def _launch_setup(context, with_rviz, hardware):
     # the resolved policy directory so its command box matches policy_node.
     # deck_cpus keeps the JPEG encoder off the isolated RT cores on the RPi.
     deck_cpus = LaunchConfiguration("deck_cpus").perform(context)
+    # The gateway receives the raw camera image. At 640x480 a frame is
+    # 0.9 MB, hundreds of UDP fragments through the loopback, and with
+    # Cyclone's default socket buffer one lost fragment discards the whole
+    # frame: under load the gateway then sees no frames at all. So it gets
+    # its own, bigger receive buffer, appended to whatever Cyclone config
+    # the process already has (the robot's pins its interfaces there).
+    cyclone_base = os.environ.get("CYCLONEDDS_URI", "")
+    cyclone_uri = (cyclone_base + "," if cyclone_base else "") + (
+        "<CycloneDDS><Domain><Internal>"
+        '<SocketReceiveBufferSize min="8MB"/>'
+        "</Internal></Domain></CycloneDDS>"
+    )
     nodes.append(
         Node(
             package="wojtek_deck",
@@ -281,16 +293,58 @@ def _launch_setup(context, with_rviz, hardware):
             output="screen",
             condition=IfCondition(LaunchConfiguration("deck")),
             prefix=f"taskset -c {deck_cpus}" if deck_cpus else None,
+            additional_env={"CYCLONEDDS_URI": cyclone_uri},
             parameters=[
                 {
                     "policy": str(loaded.directory),
                     "port": ParameterValue(
                         LaunchConfiguration("deck_port"), value_type=int
                     ),
+                    # The panel's restart button restarts this unit; the
+                    # simulation has none, so there the button stays off.
+                    "stack_unit": (
+                        "wojtek-robot.service" if hardware == "real" else ""
+                    ),
                 }
             ],
         )
     )
+
+    # The colour camera for the panel, on the robot only (the simulation
+    # renders its own). Colour alone, no depth, no point cloud, no sync:
+    # the perception stack's d435.yaml turns those on together and the
+    # RealSense node dies with SIGSEGV the moment the RGB sensor starts
+    # (see ros/deploy/deck/README.md). 640x480 rather than the sensor's
+    # 1280x720 is the Pi's budget: at full size the camera node and the
+    # gateway starved the control loop until the drives dropped to idle.
+    # initial_reset: a D435 that comes up publishing nothing (seen after a
+    # power cycle) is cured by resetting it before the streams start.
+    if hardware == "real":
+        nodes.append(
+            Node(
+                package="realsense2_camera",
+                executable="realsense2_camera_node",
+                namespace="camera",
+                name="camera",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("deck_camera")),
+                prefix=f"taskset -c {deck_cpus}" if deck_cpus else None,
+                parameters=[
+                    {
+                        "initial_reset": True,
+                        "enable_depth": False,
+                        "enable_color": True,
+                        "rgb_camera.color_profile": LaunchConfiguration(
+                            "deck_camera_profile"
+                        ),
+                        "pointcloud.enable": False,
+                        "align_depth.enable": False,
+                        "enable_rgbd": False,
+                        "enable_sync": False,
+                    }
+                ],
+            )
+        )
 
     nodes.append(
         # bash -c: mkdir the parent (rosbag2 creates the bag dir itself but
@@ -498,6 +552,11 @@ def common_launch_description(
         ),
         DeclareLaunchArgument("deck_port", default_value="8090"),
         DeclareLaunchArgument("deck_cpus", default_value=""),
+        # The panel's colour camera, robot only (deck_camera:=true in the
+        # service). Profile WxHxFPS; 640x480x15 is what the Pi affords next
+        # to the control loop.
+        DeclareLaunchArgument("deck_camera", default_value="false"),
+        DeclareLaunchArgument("deck_camera_profile", default_value="640x480x15"),
         OpaqueFunction(
             function=_launch_setup,
             kwargs={"with_rviz": with_rviz, "hardware": hardware},

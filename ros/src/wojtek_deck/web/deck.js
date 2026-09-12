@@ -55,7 +55,14 @@ function setDrive(state) {
 let gw = null, bridge = null;
 function connectGateway() {
   gw = new WebSocket(`ws://${location.host}/ws`);
-  gw.onopen = () => { lamp("link", true); log("gateway connected", "ok"); };
+  gw.onopen = () => {
+    lamp("link", true); log("gateway connected", "ok");
+    // The MJPEG <img> does not resume on its own once the gateway went
+    // away (a restart of the robot service takes it along), so every
+    // reconnect points it at the stream afresh. Not when a still image
+    // was asked for (?detsrc=).
+    if (!params.get("detsrc")) cam.src = `/stream.mjpg?${Date.now()}`;
+  };
   gw.onclose = () => { lamp("link", false); setDrive("idle"); setTimeout(connectGateway, 1000); };
   gw.onmessage = e => onGateway(JSON.parse(e.data));
 }

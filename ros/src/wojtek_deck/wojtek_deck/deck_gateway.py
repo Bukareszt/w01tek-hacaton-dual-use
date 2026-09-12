@@ -130,8 +130,10 @@ def assets_store():
     env = os.environ.get("WOJTEK_DECK_ASSETS", "").strip()
     if env:
         return Path(env).expanduser()
+    # A symlink install resolves this file into src/; a copying install
+    # (the robot's) into install/. Either way the store sits next to them.
     for parent in Path(__file__).resolve().parents:
-        if parent.name == "src":
+        if parent.name in ("src", "install"):
             return parent.parent / "deck_assets"
     return None
 
@@ -190,14 +192,16 @@ class GatewayNode(Node):
         self.frames_seen = 0      # camera messages received (status field)
         self.frames_encoded = 0   # ... of which reached a viewer
         self._last_cb = None
+        # The camera subscription exists only while somebody watches the
+        # stream (set_camera_wanted). Receiving the raw image costs a third
+        # of a core on the RPi whether or not a frame gets encoded, and the
+        # gateway is resident in the robot service now, so an unwatched
+        # panel must cost nothing.
+        self._color_sub = None
+        self._encoder = None
         if cv2 is not None or PILImage is not None:
-            self.get_logger().info(
-                "camera JPEG encoder: " + ("OpenCV" if cv2 is not None else "Pillow"))
-            # The camera publishes best-effort; a default-QoS subscription
-            # would match nothing, so mirror the sensor-data profile.
-            self.create_subscription(
-                Image, self.get_parameter("color_topic").value,
-                self._on_color, qos_profile_sensor_data)
+            self._encoder = "OpenCV" if cv2 is not None else "Pillow"
+            self.get_logger().info(f"camera JPEG encoder: {self._encoder}")
         else:
             self.get_logger().warning(
                 "no JPEG encoder (neither OpenCV nor Pillow) -- camera "
@@ -229,6 +233,23 @@ class GatewayNode(Node):
             f"command box from {meta['run_name']} ({source})")
 
     # -- camera (ROS thread) -------------------------------------------------
+    def set_camera_wanted(self, wanted):
+        """Subscribe to the camera while a viewer is on the stream."""
+        if self._encoder is None:
+            return
+        if wanted and self._color_sub is None:
+            # The camera publishes best-effort; a default-QoS subscription
+            # would match nothing, so mirror the sensor-data profile.
+            self._color_sub = self.create_subscription(
+                Image, self.get_parameter("color_topic").value,
+                self._on_color, qos_profile_sensor_data)
+            self.get_logger().info("camera: viewer arrived, subscribing")
+        elif not wanted and self._color_sub is not None:
+            self.destroy_subscription(self._color_sub)
+            self._color_sub = None
+            self._frame_stamps = []
+            self.get_logger().info("camera: last viewer gone, unsubscribed")
+
     def _on_color(self, msg):
         self.frames_seen += 1
         if self.on_frame is None or not self.want_frames():
@@ -430,6 +451,7 @@ class Server:
         await resp.prepare(request)
         q = asyncio.Queue(maxsize=1)
         self.streams.add(q)
+        self.node.set_camera_wanted(True)
         try:
             while True:
                 jpeg = await q.get()
@@ -442,6 +464,8 @@ class Server:
             pass
         finally:
             self.streams.discard(q)
+            if not self.streams:
+                self.node.set_camera_wanted(False)
         return resp
 
     async def websocket(self, request):

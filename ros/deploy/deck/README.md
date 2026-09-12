@@ -80,7 +80,13 @@ is camera only. Closing Steam also takes away the Deck's on-screen keyboard.
 
 **5. Start what serves the page.**
 
-On the robot, camera and panel, no control stack:
+On the robot nothing: the service starts the camera and the gateway with
+the control stack (`deck:=true deck_camera:=true` in
+`wojtek-robot.service`), so the page is up whenever the robot is, and
+comes back after a restart. Check with `ss -ltn | grep 8090` on the
+robot. The commands below are the same two nodes by hand, for a robot
+whose service does not carry them, or for the panel without the control
+stack:
 
 ```bash
 ssh rpi@10.42.0.2
