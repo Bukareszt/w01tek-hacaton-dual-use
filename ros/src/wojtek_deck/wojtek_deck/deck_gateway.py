@@ -19,7 +19,8 @@ The page reads its charts from foxglove_bridge, not from here: this process
 only carries what has to run on the robot, which is the dead-man. The
 handheld sits on the far side of a wifi link; a dead-man on the handheld
 cannot zero anything once that link is gone, and policy_node latches the
-last /cmd_vel it saw. So the gate lives here (drive.py) and publishes
+last /cmd_vel it saw unless launched with cmd_vel_timeout_s (off by
+default). So the gate lives here (drive.py) and publishes
 /cmd_vel itself: sticks stream in as normalized frames, and when they stop
 the gate zeroes the motion for two seconds, then goes silent.
 

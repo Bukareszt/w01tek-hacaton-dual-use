@@ -5,7 +5,9 @@ model-free unit test. The gateway node feeds it wall-clock seconds and
 publishes whatever `tick` returns.
 
 The rules are the ones gamepad_teleop already lives by, because policy_node
-latches the last /cmd_vel it received and never times it out:
+latches the last /cmd_vel it received (its own cmd_vel_timeout_s is off
+unless the launch asks for it, and even then the burst below is what hands
+/cmd_vel over cleanly to the next source):
 
   * Nothing is published until the pad has spoken once. A resident gateway
     with no client must not spam zeros over another /cmd_vel source.

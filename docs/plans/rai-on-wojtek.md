@@ -58,7 +58,8 @@ after. Reused from attempt 1 only where it saves a day (listed at the end).
 - Control input is one topic: `/cmd_vel` (`geometry_msgs/Twist`), clamped in
   `policy_node._on_cmd` to the policy's trained command box
   (`policy_meta.json`, typically vx ±0.3–0.5 m/s, wz ±0.5–1 rad/s). The
-  policy holds the last command; there is no dead-man in `policy_node`.
+  policy holds the last command; `policy_node`'s own dead-man
+  (`cmd_vel_timeout_s`) is off unless the launch asks for it.
 - `wojtek_teleop/text_commander`: `/wojtek/nav_command` (`std_msgs/String`:
   `forward | left | right | stop`) -> `/cmd_vel` at 20 Hz, `v_forward=0.3`,
   `w_turn=0.5`, dead-man `command_timeout=2.0 s`, then one zero Twist. It is

@@ -6,9 +6,9 @@ Pure python -- no rclpy, no ROS graph. Run anywhere:
 CommandState is the whole behaviour of the node minus the rclpy shell:
 `handle(command, now)` validates and arms a command, `twist_to_publish(now)`
 is what the 20 Hz timer asks -- (vx, wz) while a command is active, exactly
-one (0, 0) on stop/timeout (policy_node latches the last /cmd_vel forever,
-so the zero message is mandatory), then None so other drive sources are not
-shouted over.
+one (0, 0) on stop/timeout (policy_node latches the last /cmd_vel unless
+launched with cmd_vel_timeout_s, so the zero message is mandatory), then
+None so other drive sources are not shouted over.
 """
 
 import sys

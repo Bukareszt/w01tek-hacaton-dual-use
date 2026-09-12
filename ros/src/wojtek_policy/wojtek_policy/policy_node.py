@@ -7,7 +7,10 @@ parameters differ:
               /imu_sensor_broadcaster/imu (sensor_msgs/Imu)
               /cmd_vel       (geometry_msgs/Twist; linear.x/y + angular.z are
                               vx/vy/wz, linear.z > 0 commands the standing
-                              height for 4-D-command policies)
+                              height for 4-D-command policies. Latched by
+                              default; with cmd_vel_timeout_s > 0 it is a
+                              stream: nothing newer than that and the
+                              robot stands)
   publishes   /wojtek/joint_targets (sensor_msgs/JointState, URDF convention,
                                   absolute; 12 actuated joints. For a policy
                                   whose contract enables the tau_ff head the
@@ -72,6 +75,21 @@ class PolicyNode(Node):
         self.declare_parameter("auto_enable", True)
         self.declare_parameter("soft_start_s", 1.0)
         self.declare_parameter("watchdog_timeout_s", 0.2)
+        # How long a /cmd_vel survives its publisher. Once the newest one is
+        # older than this the velocity decays to zero: stand in place, do
+        # not walk away on a command whose sender died mid-drive (crashed
+        # Nav2, dropped link, closed tab). 0 = off, the command is latched
+        # until the next one, which is what this node always did. Off by
+        # default because not every teleop streams: teleop_twist_keyboard
+        # publishes one Twist per keypress and the Foxglove Teleop panel at
+        # its own setting, and both rely on the latch. The robot-side gates
+        # (pad, deck, consoles, text_commander) stream at 20 Hz while they
+        # drive and zero before going quiet, so they work either way; a
+        # nav stack driving /cmd_vel turns this on (0.5 s) because nothing
+        # else can catch its publisher dying. Note this is NOT
+        # watchdog_timeout_s: that one guards the SENSOR streams and holds
+        # the targets entirely.
+        self.declare_parameter("cmd_vel_timeout_s", 0.0)
         # Report the cost of each tick on /wojtek/policy_timing. Off unless a
         # run asks for it, so a plain run publishes nothing extra.
         self.declare_parameter("publish_timing", False)
@@ -111,6 +129,8 @@ class PolicyNode(Node):
             self._cmd = np.append(self._cmd, self.policy.command_fill)
         self._joints_stamp = None
         self._imu_stamp = None
+        self._cmd_stamp = None
+        self._cmd_stale = False
         self._enabled = self.get_parameter("auto_enable").value
         self._enable_time = None
         self._was_running = False
@@ -214,6 +234,7 @@ class PolicyNode(Node):
             )
             cmd = np.append(cmd, height)
         self._cmd = cmd
+        self._cmd_stamp = self.get_clock().now()
 
     # -- services ------------------------------------------------------------
     def _srv_enable(self, req, res):
@@ -239,6 +260,34 @@ class PolicyNode(Node):
             return False
         timeout = self.get_parameter("watchdog_timeout_s").value
         return (self.get_clock().now() - stamp).nanoseconds < timeout * 1e9
+
+    def _command(self):
+        """The command to track this tick, zeroed once /cmd_vel goes stale.
+
+        Only the velocity part decays. The standing height (element 3) is a
+        held set-point -- the drive gates carry it through their own silence
+        -- so a timeout means "stand in place", not "forget the stance".
+        """
+        timeout = self.get_parameter("cmd_vel_timeout_s").value
+        if timeout <= 0.0:
+            return self._cmd
+        if self._cmd_stamp is not None:
+            age = (self.get_clock().now() - self._cmd_stamp).nanoseconds * 1e-9
+            if age < timeout:
+                self._cmd_stale = False
+                return self._cmd
+            if not self._cmd_stale and np.any(self._cmd[:3] != 0.0):
+                # Once per stale episode, and only when the robot was
+                # moving: the gates zero before they go quiet, so this fires
+                # when a publisher died while driving -- exactly the thing
+                # worth seeing in the log.
+                self.get_logger().warning(
+                    f"no /cmd_vel for {age:.2f} s -- standing in place"
+                )
+        self._cmd_stale = True
+        cmd = self._cmd.copy()
+        cmd[:3] = 0.0
+        return cmd
 
     def _tick(self):
         period_ms = 0.0
@@ -272,7 +321,8 @@ class PolicyNode(Node):
         # input like stale data: hold, and reset the policy state on
         # recovery via the _was_running edge. Seen in practice from the IMU
         # broadcaster's NaN placeholders right after activation.
-        inputs = [self._q_urdf, self._dq_urdf, self._cmd]
+        cmd = self._command()
+        inputs = [self._q_urdf, self._dq_urdf, cmd]
         if self.policy.uses_imu:
             inputs += [self._gyro_base, self._gravity_base]
         if not np.all(np.isfinite(np.concatenate(inputs))):
@@ -296,7 +346,7 @@ class PolicyNode(Node):
             else np.array([0.0, 0.0, -1.0])
         )
         step_t = time.perf_counter()
-        targets_mjc = self.policy.step(gyro, gravity, q_mjc, dq_mjc, self._cmd)
+        targets_mjc = self.policy.step(gyro, gravity, q_mjc, dq_mjc, cmd)
         inference_ms = (time.perf_counter() - step_t) * 1e3
 
         # Soft start: blend from the measured pose to the policy output.

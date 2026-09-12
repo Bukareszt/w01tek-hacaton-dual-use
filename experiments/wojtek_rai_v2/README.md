@@ -84,6 +84,13 @@ Nav2: planner (NavFn) · controller (Regulated Pure Pursuit) · behaviors · bt_
 ./experiments/wojtek_rai_v2/run.sh chat "go to the hydrant and tell me what you see"
 ```
 
+Start the robot side with `cmd_vel_timeout_s:=0.5` (`./ros/sim.sh ...
+cmd_vel_timeout_s:=0.5`, the same argument on `robot.launch.py`) for a nav
+session: `policy_node` then stands in place once `/cmd_vel` goes stale, which
+is the only thing that stops the robot when the link to the nav container
+dies, not just the container. Off by default because the keyboard and
+Foxglove teleops publish per keypress and rely on the latched command.
+
 Named places for the sim scene live in `wojtek_rai/nav/config/places_sim.yaml`
 (prop positions from `scene_sim.xml`, pulled back 0.6 m). Lessons that shaped
 the parameters (`wojtek_rai/nav/config/nav2.yaml`):
