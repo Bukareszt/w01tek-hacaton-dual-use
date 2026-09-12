@@ -19,7 +19,10 @@ per family -- add a course by appending to the right family's COURSES:
                                slalom_05m, u_turn
   families/speed.py            straight_slow, straight_fast, circle_r2_fast,
                                speed_steps_straight
-  families/floor.py            straight_slippery, circle_r1_slippery
+  families/floor.py            straight_slippery, circle_r1_slippery,
+                               straight_sticky, circle_r1_sticky,
+                               straight_sticky_hi, circle_r1_sticky_hi,
+                               spin_left_sticky
   families/disturbance.py      straight_push, straight_push_fast
   families/spin.py             spin_left, spin_right, spin_slow, spin_fast --
                                rotate-in-place rows (SpinCourse): a held pure
@@ -61,7 +64,7 @@ by luck.
 
 Cost. The rollout is a single-env Python loop (like battery.rollout), so this
 is minutes, not seconds: measured ~30 s per 2600-step course per seed on CPU,
-i.e. roughly half an hour for all 20 scenarios x 8 seeds and up to an hour if
+i.e. roughly forty minutes for all 25 scenarios x 8 seeds and over an hour if
 most of them time out instead of finishing. Use `--only NAME... --seeds 1`
 while iterating and the full set for a verdict.
 """

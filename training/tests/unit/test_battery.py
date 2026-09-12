@@ -11,8 +11,42 @@ from wojtek_rl.battery import (
     plant_step,
     roll_deg,
     saturation_fractions,
+    touchdown_speeds,
     tracking_error,
 )
+
+
+# -- touchdown_speeds: the foot-side "walenie" measurement ----------------
+
+
+def test_touchdown_speed_reads_the_step_before_the_contact_edge():
+    # One foot: free for 3 steps, lands between t=2 and t=3, stays down.
+    contact = np.array([[0], [0], [0], [1], [1]], dtype=bool)
+    # Descending at 0.5 m/s before contact; the solver zeroes it after.
+    vz = np.array([[-0.2], [-0.4], [-0.5], [0.0], [0.0]])
+    td = touchdown_speeds(contact, vz)
+    assert td.tolist() == [0.5]
+
+
+def test_touchdown_speed_pools_feet_and_ignores_liftoff():
+    contact = np.array([
+        [1, 0], [0, 0], [1, 0], [1, 1], [0, 1],
+    ], dtype=bool)
+    vz = np.array([
+        [0.0, -0.1], [-0.3, -0.2], [0.0, -0.9], [0.0, 0.0], [0.4, 0.0],
+    ])
+    td = touchdown_speeds(contact, vz)
+    # foot 0 lands between t=1 and t=2 (0.3); foot 1 between t=2 and t=3
+    # (0.9). The liftoff edges (1 -> 0) contribute nothing; foot 0's
+    # upward +0.4 at t=4 sits on a liftoff edge and is not read.
+    assert sorted(td.tolist()) == [0.3, 0.9]
+
+
+def test_touchdown_speed_upward_precontact_clips_to_zero_and_empty_is_empty():
+    contact = np.array([[0], [1]], dtype=bool)
+    assert touchdown_speeds(contact, np.array([[0.2], [0.0]])).tolist() == [0.0]
+    assert touchdown_speeds(np.zeros((1, 4), bool), np.zeros((1, 4))).size == 0
+    assert touchdown_speeds(np.zeros((5, 4), bool), np.zeros((5, 3))).size == 0
 
 
 # -- battery_scenarios: hand-verify the exact windows the redesign asked for

@@ -87,12 +87,14 @@ def test_sine_slalom_amplitude_and_endpoints():
 # -- catalogue -------------------------------------------------------------
 
 
-def test_catalogue_is_the_documented_twenty():
+def test_catalogue_is_the_documented_twenty_five():
     assert set(course_catalogue()) == {
         "straight_10m", "arc_r3_90deg", "circle_r2", "circle_r075",
         "figure_eight_r15", "square_3m", "slalom_05m", "u_turn",
         "straight_slow", "straight_fast", "circle_r2_fast",
         "speed_steps_straight", "straight_slippery", "circle_r1_slippery",
+        "straight_sticky", "circle_r1_sticky",
+        "straight_sticky_hi", "circle_r1_sticky_hi", "spin_left_sticky",
         "straight_push", "straight_push_fast",
         "spin_left", "spin_right", "spin_slow", "spin_fast",
     }
@@ -129,13 +131,48 @@ def test_speed_steps_blocks():
     assert np.allclose(c.waypoints[:, 0], [0.0, 2.5, 5.0, 7.5, 10.0])
 
 
-def test_only_the_slippery_rows_change_friction():
+def test_only_the_floor_rows_change_friction():
     friction = {
         n: f for n, c in course_catalogue().items()
         if (f := getattr(c, "friction", None)) is not None
     }
-    assert set(friction) == {"straight_slippery", "circle_r1_slippery"}
-    assert set(friction.values()) == {0.4}
+    assert friction == {
+        "straight_slippery": 0.4, "circle_r1_slippery": 0.4,
+        "straight_sticky": 1.5, "circle_r1_sticky": 1.5,
+        "straight_sticky_hi": 2.5, "circle_r1_sticky_hi": 2.5,
+        "spin_left_sticky": 1.5,
+    }
+
+
+def test_sticky_rows_share_geometry_with_their_dry_baseline():
+    """Only mu changes: straight rows repeat straight_10m, circle rows
+    repeat circle_r1_slippery's geometry, the spin row repeats spin_left."""
+    cat = course_catalogue()
+    for row in ["straight_sticky", "straight_sticky_hi"]:
+        assert np.allclose(cat[row].waypoints, cat["straight_10m"].waypoints)
+        assert np.allclose(
+            cat[row].segment_speeds, cat["straight_10m"].segment_speeds
+        )
+    for row in ["circle_r1_sticky", "circle_r1_sticky_hi"]:
+        assert np.allclose(
+            cat[row].waypoints, cat["circle_r1_slippery"].waypoints
+        )
+        assert np.allclose(
+            cat[row].segment_speeds, cat["circle_r1_slippery"].segment_speeds
+        )
+    assert cat["spin_left_sticky"].wz == cat["spin_left"].wz
+    assert cat["spin_left_sticky"].turns == cat["spin_left"].turns
+    assert cat["spin_left"].friction is None
+
+
+def test_sticky_levels_bracket_the_physical_range():
+    """1.5 is the realistic ceiling for rubber on rough concrete or carpet,
+    2.5 is a stress level; both must sit above the model's own 0.9 and
+    above the top DR draw of the keepers that predate the sticky arms
+    (0.9 * 1.35). The sticky arms themselves train up to 0.9 * 1.8."""
+    from wojtek_rl.courses.spec import STICKY_FRICTION, STICKY_FRICTION_HI
+
+    assert 0.9 * 1.35 < STICKY_FRICTION < STICKY_FRICTION_HI
 
 
 def test_only_the_push_rows_carry_a_disturbance():
@@ -593,7 +630,11 @@ def _spin_courses():
 
 def test_spin_family_covers_both_directions_and_rates():
     spins = _spin_courses()
-    assert set(spins) == {"spin_left", "spin_right", "spin_slow", "spin_fast"}
+    # spin_left_sticky is the floor family's row: same command as spin_left,
+    # only the friction differs (asserted with the other sticky rows).
+    assert set(spins) == {
+        "spin_left", "spin_right", "spin_slow", "spin_fast", "spin_left_sticky",
+    }
     # the chirality pair differs ONLY in sign
     assert spins["spin_left"].wz == -spins["spin_right"].wz
     assert spins["spin_left"].wz > 0  # + is CCW/left

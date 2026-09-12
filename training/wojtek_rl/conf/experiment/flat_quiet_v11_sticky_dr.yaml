@@ -1,0 +1,30 @@
+# @package _global_
+# QUIET WALKING, iteration 11 (2026-09-12): high-friction DR, one knob.
+# The robot stumbles on carpet and rough concrete, and the quiet family
+# never trained above effective mu 0.9 * 1.35 = 1.22 (dr.foot_friction
+# [0.4, 1.35] on the model's 0.9). This arm widens the draw upward only:
+# range [0.4, 1.8] -> effective mu 0.36 .. 1.62, which covers rubber on
+# rough concrete or carpet (1.0 .. 1.5) without going past ~2.0, where
+# the pyramidal cone at two solver iterations stops being physics. Only
+# the sliding coefficient is drawn; the model's torsional 0.2 is already
+# far above physical for a 4.6 cm foot, so twist is not the gap.
+# mu stays unobservable to the actor, so the recorded lesson applies:
+# wide DR buys robustness, not adaptation -- watch for blanket caution.
+# Gate vs the baseacc keeper on the FULL courses table (25 rows incl. the
+# sticky family): straight_sticky / circle_r1_sticky / spin_left_sticky
+# up; no other row down more than ~10%; report's impact proxy not up;
+# spins keep wz >= 0.8; battery slow 0.25 still steps (duty < 1.0).
+# Budget: 400M (phase-E's friction-only budget on a keeper restore).
+# Usage:
+#   ./training/run.sh train +experiment=flat_quiet_v11_sticky_dr seed=0 \
+#     restore=runs/wojtek_flat_quiet_baseacc_s0/checkpoints/001002700800
+defaults:
+  - flat_quiet_baseacc
+
+dr:
+  foot_friction: { enable: true, range: [0.4, 1.8] }
+
+ppo:
+  num_timesteps: 400000000
+
+run_name: wojtek_flat_quiet_v11_sticky_dr

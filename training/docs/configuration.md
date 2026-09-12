@@ -799,6 +799,13 @@ so command-line values can still override it.
 | `flat_quiet_v2` | flat_quiet_v1 | `feet_landing=-15`. Very quiet where it steps (td_p90 0.26 m/s at walk vs the keeper's 0.89) but skates below ~0.4 m/s and deadlocks spins from scratch. Use as the phase-B recipe on a keeper restore instead (run `wojtek_flat_quiet_v2b_s0`). |
 | `flat_quiet_v3` | flat_quiet_v1 | `feet_landing=-25` phase-B probe: over-pressured — skating creeps up the speed range and spins die even from a keeper restore. Dose-response data point, not a keeper. |
 | `flat_quiet_v4` | flat_quiet_v2 | + `feet_landing_wz_fade=0.1`: v2b's keeper-restore recipe with commanded turning exempt (near-binary, the sag-fade construction). The quiet-walking proposal: linear skills step 3-6x quieter, spins keep the loud keeper gait by design. |
+| `flat_quiet_v10` | flat_quiet_v6 | RECORD (reconstructed 2026-09-12 from the keeper's report; the run was CLI overrides on v6). The quiet family's keeper `wojtek_flat_quiet_v10_s0` (HF `wojtek-quiet-locomotion@553795b`): v6's recipe with spins paying 60% of the landing charge (`feet_landing_wz_floor=0.6`) and `tracking_ang_vel=2.4` to buy the spin rate back, 1B keeper-restore budget. Courses 20/20, 0 falls/160, step-turn spins at wz 0.90/-0.88. Plant kp20/kd0.5. |
+| `flat_quiet_baseacc` | flat_quiet_v10 | RECORD (reconstructed 2026-09-12 from the deploy contract and commit 6ff736c; `base_accel` fade/floor ASSUMED to mirror `feet_landing`'s). The policy on the robot since 2026-08-13, `wojtek_flat_quiet_baseacc_s0` (HF `wojtek-quiet-locomotion@main`): v10 on the kp40/kd0.8 plant + `base_accel=-0.02` body-shock penalty. Materialize it with `fetch-keeper --experiment flat_quiet_baseacc`. |
+| `flat_quiet_v11_sticky_dr` | flat_quiet_baseacc | One knob: `dr.foot_friction.range=[0.4,1.8]` (effective mu 0.36-1.62, up from 1.22) so the draw covers rubber on rough concrete and carpet, where the deployed policy stumbles. 400M keeper-restore budget. Gate on the full 25-row courses table vs the start checkpoint: sticky rows up, nothing else down past max(10%, seed noise), falls and impact proxy not up. Measured 2026-09-12 (start = the HF `checkpoint/`, which is v10's network, on the kp40 plant): straight_sticky 0.55 → 0.76, circle_r1_sticky 0.46 → 0.58; a control arm (same restore and budget, no DR change) left the sticky rows flat, so the gain is the knob's. |
+| `flat_quiet_v12_slip_cmd` | flat_quiet_v11_sticky_dr | One knob: `slip_cmd=1.0`, the speed-scaled slip income, on top of the sticky DR. Measured 2026-09-12 (restore from v11): straight_sticky 0.76 → 1.00, straight_slow 0.28 → 1.12 (the slow-walk shuffle is gone), 0 falls/200, replicated on seed 1 (mean 1.050 both). Restored from the control arm's checkpoint instead (`wojtek_flat_quiet_v15_from_control_s0`) it also keeps the control's spins: mean 1.122, the night's best table. The exporter's closed-loop bound trips for the v11-restore run (3.4e-3) and passes for the control-restore run (3.6e-4). |
+| `flat_quiet_v13_glide` | flat_quiet_v11_sticky_dr | One knob: `glide_height=0.05`. REJECTED 2026-09-12: courses gate passed but the report's impact proxy rose to 57.6 m/s² (parent 25.0, start 48.7). |
+| `flat_quiet_v14_slip_glide` | flat_quiet_v12_slip_cmd | v12 + the 5 cm glide band, restored from v15. Measured 2026-09-12: td_p90 0.33 in the walk ramp, the same as v15, with the lowest stance slip of the family (0.195); the band does not lower touchdowns once `slip_cmd` is on. |
+| `flat_quiet_v16_landing` | flat_quiet_v12_slip_cmd | `feet_landing_wz_floor=0.75`, restored from v15. Measured 2026-09-12: td_p90 0.34, no gain over v15; the spin floor is not the lever for touchdown speed. |
 | `getup` | getup | Safe fall recovery baseline. |
 | `jump` | jump | Commanded jump baseline. |
 | `jump_v3` | jump | Higher torque and deliberate wind-up jump recipe. |
@@ -899,6 +906,7 @@ using the preset.
 | `imu-grid` | `./training/run.sh imu-grid --runs runs/<name>... [--bias-levels B... --axes x y z --noise-gyro S... --vib-gain G... --cross-noise-vib --latency-substeps D... --lag-tau T... --seeds N --stand-sec S --walk-sec S --walk-vx V --out FILE]`; writes the IMU robustness grid. Its axes are pinned gyro bias, white gyro noise, the gyro-vib feedback loop, pinned control latency, and actuator-torque lag, and they can be combined in one cell. See "IMU robustness grid" below. |
 | `report` | `./training/run.sh report --run runs/<name> [--out-json FILE --out-md FILE]`; writes battery, torque, power, impact proxy, and termination summary. |
 | `export` | `./training/run.sh export --run runs/<name> [--out DIR]`; writes `policy.npz` plus `policy_meta.json`, the schema-2 deployment contract built from the run's env (`wojtek_rl/deploy_contract.py`), and validates the deploy runtime end-to-end against the env before writing. |
+| `fetch-keeper` | `./training/run.sh fetch-keeper --repo [org/]name[@rev] [--run-name NAME --experiment PRESET --force] [hydra overrides...]`; materializes a published keeper as `runs/<name>/` (its `checkpoint/` tree under `checkpoints/<step>/`, the deploy pair under `deploy/`, and `run.json`) so `courses`, `report`, `battery` and `restore=` can read it. A repo without `run.json` needs `--experiment`, the record preset the keeper was trained with (e.g. `flat_quiet_baseacc`): the record is synthesized from it and says so under `source`. |
 | `app` | `./training/run.sh app [--host HOST --port PORT]`; runs the interactive navigation demo. `WOJTEK_RUN_DIR`, `HOST`, and `PORT` environment variables supply defaults; see [demo README](../demo/README.md). |
 | `test` | `./training/run.sh test [pytest args]`; runs `training/tests/unit` — model-free, ~3 s, safe in an edit loop. |
 | `test-slow` | `./training/run.sh test-slow [pytest args]`; runs `training/tests/integration` — builds and steps real MJX models, 6m23s cold. Sets `JAX_COMPILATION_CACHE_DIR=training/.jax_cache` so repeat runs reuse compiled executables (measured on one file: 45s cold, 16s warm; the whole suite's warm time was not measured). |
@@ -970,19 +978,25 @@ scores how faithfully the robot walked a geometric path.
 
 ```bash
 ./training/run.sh courses --list                       # the catalogue, no run needed
-./training/run.sh courses --run runs/my_locomotion     # 20 scenarios x 8 seeds
+./training/run.sh courses --run runs/my_locomotion     # 25 scenarios x 8 seeds
 ./training/run.sh courses --run runs/my_locomotion \
   --only circle_r075 u_turn --seeds 4 --paths          # iterate on two rows
 ./training/run.sh courses --run runs/my_locomotion --video --paths
 ```
 
-Twenty scenarios in five families, each varying exactly one thing off the
-nominal (flat floor, model friction, 0.5 m/s, no disturbance) so a bad row has
-a single interpretation: eight path geometries (`straight_10m`,
+Twenty-five scenarios in five families, each varying exactly one thing off
+the nominal (flat floor, model friction, 0.5 m/s, no disturbance) so a bad
+row has a single interpretation: eight path geometries (`straight_10m`,
 `arc_r3_90deg`, `circle_r2`, `circle_r075`, `figure_eight_r15`, `square_3m`,
 `slalom_05m`, `u_turn`), four speed rows (`straight_slow`, `straight_fast`,
-`circle_r2_fast`, `speed_steps_straight`), two friction rows
-(`straight_slippery`, `circle_r1_slippery` at `mu = 0.4`), two impulse rows
+`circle_r2_fast`, `speed_steps_straight`), seven floor rows -- two slippery
+(`straight_slippery`, `circle_r1_slippery` at `mu = 0.4`) and five sticky
+(`straight_sticky`, `circle_r1_sticky`, `spin_left_sticky` at `mu = 1.5`,
+the realistic ceiling for rubber on rough concrete or carpet, and
+`straight_sticky_hi`, `circle_r1_sticky_hi` at `mu = 2.5`, a stress level
+past anything physical: a gait that skates or shuffles instead of lifting
+its feet fails at both levels, a stepping gait at neither, and a pivot is
+the motion that needs sliding most) -- two impulse rows
 (`straight_push`, `straight_push_fast`), and four rotate-in-place rows
 (`spin_left`/`spin_right` isolating chirality at 0.8 rad/s — a policy can be
 asymmetric; the stiff_b keeper shipped unable to spin right because nothing
@@ -1025,7 +1039,7 @@ machine with no usable GL drops the video with a warning and keeps the
 numbers.
 
 Cost: a single-env Python rollout loop, so measured ~30 s per 2600-step course
-per seed on CPU — roughly half an hour for the full 20 x 8 matrix, up to an
+per seed on CPU — roughly forty minutes for the full 25 x 8 matrix, up to an
 hour if most scenarios time out rather than finish. Use `--only NAME...
 --seeds 1` while iterating.
 
