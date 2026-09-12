@@ -89,21 +89,15 @@ desync:
 - Config should be leaner than `wojtek_perception_bringup/config/d435.yaml`:
   no pointcloud, no RGBD, no depth post-processing stack. This camera only
   needs to feed YOLO (+ depth for range, if the sensor gives it cheaply).
-- **Hardware is not settled.** Two options in play:
-  - **RealSense D435** (second unit, distinct namespace as above) --
-    `realsense2_camera` is already a dependency of this workspace via
-    `wojtek_perception_bringup`, so this path has no new external SDK to
-    bring in. Lowest integration risk.
-  - **Occipital Structure Core (STO2D-C)** -- no maintained ROS2 driver
-    exists for this sensor. Requires the closed-source Structure SDK
-    (developer.structure.io, XRPro LLC), and its bundled "ROS2 driver" is
-    labeled beta with no evidence of being kept current against Jazzy.
-    Treat bring-up as a timeboxed spike (see below), not a given.
-- **Decision checkpoint**: run the vendor's own sample app
-  (`CorePlayground`/`Recorder` for Structure Core) against the RPi first,
-  before writing any ROS code against it. If the sensor isn't talking to
-  the board within the first hour or two of trying, fall back to the
-  second-RealSense path -- don't let a camera choice eat the weekend.
+- **Hardware chosen: plain USB webcam** -- a simple, low-cost approach that
+  avoids both external SDKs and deep driver complexity. See
+  [`ros/src/wojtek_targeting_camera/`](ros/src/wojtek_targeting_camera/) for
+  the driver implementation. Original options were not pursued:
+  - **Occipital Structure Core (STO2D-C)** would require the closed-source
+    Structure SDK (developer.structure.io, XRPro LLC), which is not obtainable
+    in this environment. No maintained ROS2 driver exists for this sensor.
+  - **RealSense D435**: adds unnecessary complexity for YOLO's needs; USB
+    webcam is sufficient and simpler to integrate on the RPi.
 
 ## Hardware / control loop notes (carried over from planning, don't relitigate)
 
