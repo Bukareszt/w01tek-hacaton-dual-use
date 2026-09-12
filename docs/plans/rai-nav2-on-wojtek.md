@@ -4,8 +4,10 @@ Status: N0–N3 done in sim on 2026-09-12 (first Nav2 goal reached; agent
 `go_to_place(hydrant)` → arrival → camera report; then `find_objects` /
 `go_to_object` on GroundingDINO, 8 cm position error measured against the sim
 ground truth). N4 (physical robot) open: the agent has been run read-only
-against the robot over its WiFi AP, with no Nav2 and no movement tools.
-Lessons learned are in
+against the robot over its WiFi AP, with no Nav2 and no movement tools. The
+nav launch's `target:=real` gates Nav2 on `wojtek_rai/nav/preflight.py`,
+which is not written yet, so that path shuts down at the gate; N4 starts
+with the preflight. Lessons learned are in
 `experiments/wojtek_rai_v2/README.md` (Navigation section). Builds on
 [rai-on-wojtek.md](rai-on-wojtek.md)
 (the working sim demo: RAI ReAct agent → `walk` tool → `text_commander`).
@@ -143,6 +145,11 @@ Design decisions:
 - Acceptance: in streamlit, "go to the stop sign and tell me what you
   see" → one `navigate_to_pose` call, arrival, camera, answer. Logged
   transcript under `runs/`.
+- *Done as* `wojtek_rai/nav_tools.py`, not `Nav2Toolkit`: the
+  `workspace_bounds` kwargs do nothing in rai-core 2.12 (section 1), so the
+  ±6 m box, the goal deadline and the cancellable handle live in
+  `_TimedNavMixin`, shared by `navigate_to_pose`, `go_to_place` and
+  `go_to_object`.
 
 ### N3 — object-grounded goals (2 days, GPU on the laptop)
 

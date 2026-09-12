@@ -46,8 +46,10 @@ CONFIG = "/exp/wojtek_rai/nav/config"
 # and correct the drifting external odometry from the scan.
 SLAM_REAL_OVERRIDES = {"transform_publish_period": 0.02, "use_scan_matching": True}
 
-# The bounded odometry check (see preflight.py) must finish before Nav2 is
-# brought up in real mode.
+# The bounded odometry check must finish before Nav2 is brought up in real
+# mode. wojtek_rai/nav/preflight.py is not in the tree yet (plan item N4):
+# until it lands the process exits non-zero and target:=real shuts down at
+# the gate below, fail-safe, before slam_toolbox, the watchdog or Nav2 start.
 PREFLIGHT_CMD = ["python3", "-m", "wojtek_rai.nav.preflight"]
 
 WATCHDOG_CMD = ["python3", "-m", "wojtek_rai.nav.cmd_vel_watchdog"]
