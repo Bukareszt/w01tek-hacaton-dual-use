@@ -1,8 +1,13 @@
 # Nav2 on Wojtek, driven by RAI — plan
 
-Status: N0–N2 done in sim on 2026-09-12 (first Nav2 goal reached; agent
-`go_to_place(hydrant)` → arrival → camera report). N3 (object-grounded goals)
-and N4 (physical robot) open. Lessons learned are in
+Status: N0–N3 done in sim on 2026-09-12 (first Nav2 goal reached; agent
+`go_to_place(hydrant)` → arrival → camera report; then `find_objects` /
+`go_to_object` on GroundingDINO, 8 cm position error measured against the sim
+ground truth). N4 (physical robot) open: the agent has been run read-only
+against the robot over its WiFi AP, with no Nav2 and no movement tools. The
+nav launch's `target:=real` gates Nav2 on `wojtek_rai/nav/preflight.py`,
+which is not written yet, so that path shuts down at the gate; N4 starts
+with the preflight. Lessons learned are in
 `experiments/wojtek_rai_v2/README.md` (Navigation section). Builds on
 [rai-on-wojtek.md](rai-on-wojtek.md)
 (the working sim demo: RAI ReAct agent → `walk` tool → `text_commander`).
@@ -15,7 +20,7 @@ Sim first; the physical robot is a separate, human-authorized phase.
 
 | RAI tool | needs on the ROS side |
 |---|---|
-| `Nav2Toolkit` / `NavigateToPoseBlockingTool` | action `navigate_to_pose` (`nav2_msgs/action/NavigateToPose`), goals in `frame_id` (default `map`); optional `workspace_bounds_min/max` reject out-of-area goals |
+| `Nav2Toolkit` / `NavigateToPoseBlockingTool` | action `navigate_to_pose` (`nav2_msgs/action/NavigateToPose`), goals in `frame_id` (default `map`). Its `workspace_bounds_min/max` kwargs do nothing in rai-core 2.12 (`BaseROS2Tool` is `extra="ignore"`), and `send_goal` has no timeout: `nav_tools._TimedNavMixin` adds both, and every goal-sending tool here goes through it |
 | `GetCurrentPoseTool(frame_id="map", robot_frame_id="base_link")` | TF `map → base_link` |
 | `GetOccupancyGridTool` | `nav_msgs/OccupancyGrid` on `/map` + TF, rendered as an image for the VLM |
 | `GetROS2ImageConfiguredTool` | camera topic (already used) |
@@ -140,6 +145,11 @@ Design decisions:
 - Acceptance: in streamlit, "go to the stop sign and tell me what you
   see" → one `navigate_to_pose` call, arrival, camera, answer. Logged
   transcript under `runs/`.
+- *Done as* `wojtek_rai/nav_tools.py`, not `Nav2Toolkit`: the
+  `workspace_bounds` kwargs do nothing in rai-core 2.12 (section 1), so the
+  ±6 m box, the goal deadline and the cancellable handle live in
+  `_TimedNavMixin`, shared by `navigate_to_pose`, `go_to_place` and
+  `go_to_object`.
 
 ### N3 — object-grounded goals (2 days, GPU on the laptop)
 
@@ -150,6 +160,10 @@ Design decisions:
   of the object.
 - Acceptance: "go to the ball" with no registry entry: detection → pose →
   Nav2 → stops 0.4–0.6 m from the ball (sim ground truth), 3/3.
+- *Done as* detection only: SAM2-large next to the simulator's renderer
+  overflows the 4 GB laptop GPU, and bearing + median box depth are enough
+  for the goal. Colour and depth have different intrinsics, so the colour box
+  is re-projected through the viewing ray into the depth image.
 
 ### N4 — the physical robot (1 week, human-authorized, separate go)
 

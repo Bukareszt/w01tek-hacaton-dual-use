@@ -195,6 +195,27 @@ def test_stop_is_sent_when_the_yaw_lookup_fails_mid_turn(connector):
     assert commands[:-1] == ["left", "left"]
 
 
+def test_a_turn_that_never_published_does_not_wait_for_a_subscriber_twice(connector, monkeypatch):
+    """text_commander down: the first pulse fails after SUBSCRIBER_WAIT_S and
+    nothing was published, so there is nothing to stop; the closing stop must
+    not repeat the wait and the error (same guard as WalkTool)."""
+    from wojtek_rai.tools import _NavCommandMixin
+
+    make_odometry(connector, step_rad=0.2)
+    connector.node.create_publisher.return_value.get_subscription_count.return_value = 0
+    sends = []
+    real_send = _NavCommandMixin._send
+    monkeypatch.setattr(
+        _NavCommandMixin, "_send", lambda self, c: sends.append(c) or real_send(self, c)
+    )
+
+    with pytest.raises(ValueError, match="nothing subscribes"):
+        _turn(connector)._run(degrees=90.0)
+
+    assert sends == ["left"]
+    assert connector.published == []
+
+
 def test_turn_refuses_when_nav_command_is_not_writable(connector):
     make_odometry(connector, step_rad=0.2)
     tool = TurnTool(connector=connector, writable=[], forbidden=list(limits.FORBIDDEN))

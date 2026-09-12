@@ -178,7 +178,7 @@ def test_grab_waits_for_a_frame_newer_than_after(clock):
 
 def test_go_to_object_reports_a_stale_camera_without_sending_a_goal(clock, monkeypatch):
     goals = []
-    monkeypatch.setattr(pt.NavigateToPoseBlockingTool, "_run", lambda self, **kw: goals.append(kw) or "sent")
+    monkeypatch.setattr(pt._TimedNavMixin, "_navigate", lambda self, x, y, yaw: goals.append((x, y, yaw)) or "sent")
     connector = make_connector(clock, colour_age=3.0)
     _service(connector, [_detection("ball", 320, 180, 40, 40)])
 
@@ -358,3 +358,121 @@ def test_detection_gets_a_decoded_image_when_the_colour_stream_is_compressed(clo
     assert (img.encoding, img.width, img.height) == ("bgr8", 8, 4)
     assert img.header.frame_id == OPTICAL_FRAME
     assert len(img.data) == 8 * 4 * 3
+
+
+# --- 6. go_to_object sends its goal down the bounded, cancellable path -------
+#
+# It used to call RAI's unbounded send_goal: no deadline, no workspace box, no
+# permission check, and the handle unregistered, so `stop` / `cancel_navigation`
+# could not reach it. It now shares _TimedNavMixin with navigate_to_pose.
+
+
+class _Future:
+    def __init__(self, result=None, done=True):
+        self._result, self._done = result, done
+
+    def add_done_callback(self, cb):
+        if self._done:
+            cb(self)
+
+    def result(self):
+        return self._result
+
+
+class _GoalHandle:
+    accepted = True
+
+    def __init__(self, nav_tools):
+        self.cancelled = 0
+        self.registered = None
+        self._nav_tools = nav_tools
+
+    def get_result_async(self):
+        # What `stop` would see while the goal is in flight.
+        self.registered = self._nav_tools._ACTIVE["handle"]
+        return _Future(done=False)
+
+    def cancel_goal_async(self):
+        self.cancelled += 1
+        return _Future()
+
+
+class _ActionClient:
+    def __init__(self, handle):
+        self.handle = handle
+
+    def wait_for_server(self, timeout_sec=None):
+        return True
+
+    def send_goal_async(self, goal):
+        return _Future(result=self.handle)
+
+
+@pytest.fixture
+def nav(monkeypatch):
+    """nav_tools with a fake action client and a short goal deadline."""
+    from wojtek_rai import nav_tools
+
+    monkeypatch.setattr(limits, "NAV_GOAL_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(nav_tools, "NAV_SERVER_TIMEOUT_S", 0.05)
+    handle = _GoalHandle(nav_tools)
+    monkeypatch.setattr(nav_tools, "ActionClient", lambda *a, **k: _ActionClient(handle))
+    return nav_tools, handle
+
+
+def _ball_in_view(clock):
+    connector = make_connector(clock)
+    _service(connector, [_detection("ball", 320, 180, 40, 40)])
+    return connector
+
+
+def test_go_to_object_bounds_its_goal_and_registers_it_for_cancellation(clock, nav):
+    nav_tools, handle = nav
+
+    out = _goto(_ball_in_view(clock))._run("ball")
+
+    assert "timed out" in out and "cancelled" in out
+    assert handle.cancelled == 1                 # the deadline cancelled it
+    assert handle.registered is handle           # `stop` could have, too
+    assert nav_tools._ACTIVE["handle"] is None   # cleared on the way out
+
+
+def test_go_to_object_refuses_a_goal_outside_the_workspace(clock, monkeypatch, nav):
+    nav_tools, _ = nav
+    monkeypatch.setattr(nav_tools, "ActionClient", lambda *a, **k: pytest.fail("no goal may be sent"))
+    monkeypatch.setattr(limits, "WORKSPACE_MIN", (-0.5, -0.5, -1.0))
+    monkeypatch.setattr(limits, "WORKSPACE_MAX", (0.5, 0.5, 1.0))
+
+    out = _goto(_ball_in_view(clock))._run("ball")
+
+    assert "outside the workspace" in out
+
+
+def test_go_to_object_refuses_when_the_nav_action_is_not_writable(clock, nav):
+    nav_tools, _ = nav
+    tool = pt.GoToObjectTool(
+        connector=_ball_in_view(clock), frame_id=limits.MAP_FRAME, action_name=limits.NAV_ACTION,
+        writable=[], forbidden=list(limits.FORBIDDEN),
+    )
+
+    assert "not writable" in tool._run("ball")
+    assert nav_tools._ACTIVE["handle"] is None
+
+
+def test_the_workspace_bounds_kwargs_really_are_dead(clock, monkeypatch):
+    """nav_tools says rai-core 2.12 ignores workspace_bounds_*; build_perception_tools
+    used to pass them anyway, which read as a box that was never enforced.
+    pydantic drops unknown kwargs silently, so the build is checked with
+    extras forbidden: re-adding the kwargs raises here."""
+    from pydantic import ConfigDict
+
+    assert "workspace_bounds_min" not in pt.GoToObjectTool.model_fields
+
+    class _NoExtras(pt.GoToObjectTool):
+        model_config = ConfigDict(extra="forbid")
+
+    monkeypatch.setattr(pt, "GoToObjectTool", _NoExtras)
+    with pytest.raises(Exception, match="xtra"):
+        _NoExtras(connector=make_connector(clock), **_permissions(), workspace_bounds_min=(0, 0, 0))
+    names = {t.name for t in pt.build_perception_tools(make_connector(clock), _permissions())}
+    assert names == {"find_objects", "go_to_object"}

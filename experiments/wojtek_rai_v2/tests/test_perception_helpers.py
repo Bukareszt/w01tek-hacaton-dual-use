@@ -217,25 +217,24 @@ def _robot_at_origin(connector):
 
 def test_go_to_object_stops_the_standoff_short_of_the_object_facing_it(clock, monkeypatch):
     goals = []
-    monkeypatch.setattr(pt.NavigateToPoseBlockingTool, "_run", lambda self, **kw: goals.append(kw) or "sent")
+    monkeypatch.setattr(pt._TimedNavMixin, "_navigate", lambda self, x, y, yaw: goals.append((x, y, yaw)) or "sent")
     connector = make_connector(clock)
     _robot_at_origin(connector)
     _service(connector, [_detection("ball", CX_C, CY_C, 40, 40)])
 
     out = _goto(connector)._run("ball")
 
-    (goal,) = goals
+    ((gx, gy, gyaw),) = goals
     object_x = CAMERA_X + 3.0 * math.cos(PITCH)
-    assert goal["x"] == pytest.approx(object_x - limits.OBJECT_STANDOFF_M, abs=1e-6)
-    assert goal["y"] == pytest.approx(0.0, abs=1e-6)
-    assert goal["yaw"] == pytest.approx(0.0, abs=1e-6)
-    assert goal["z"] == 0.0
+    assert gx == pytest.approx(object_x - limits.OBJECT_STANDOFF_M, abs=1e-6)
+    assert gy == pytest.approx(0.0, abs=1e-6)
+    assert gyaw == pytest.approx(0.0, abs=1e-6)
     assert out.endswith("sent")
 
 
 def test_go_to_object_never_backs_past_the_robot_when_the_object_is_close(clock, monkeypatch):
     goals = []
-    monkeypatch.setattr(pt.NavigateToPoseBlockingTool, "_run", lambda self, **kw: goals.append(kw) or "sent")
+    monkeypatch.setattr(pt._TimedNavMixin, "_navigate", lambda self, x, y, yaw: goals.append((x, y, yaw)) or "sent")
     # 0.25 m ahead of the camera: the object is inside the 0.6 m standoff.
     connector = make_connector(clock, depth_arr=np.full((240, 424), 0.25))
     _robot_at_origin(connector)
@@ -243,13 +242,13 @@ def test_go_to_object_never_backs_past_the_robot_when_the_object_is_close(clock,
 
     _goto(connector)._run("ball")
 
-    (goal,) = goals
-    assert (goal["x"], goal["y"]) == pytest.approx((0.0, 0.0), abs=1e-6)
+    ((gx, gy, _),) = goals
+    assert (gx, gy) == pytest.approx((0.0, 0.0), abs=1e-6)
 
 
 def test_go_to_object_refuses_without_a_usable_distance(clock, monkeypatch):
     goals = []
-    monkeypatch.setattr(pt.NavigateToPoseBlockingTool, "_run", lambda self, **kw: goals.append(kw) or "sent")
+    monkeypatch.setattr(pt._TimedNavMixin, "_navigate", lambda self, x, y, yaw: goals.append((x, y, yaw)) or "sent")
     connector = make_connector(clock, depth_arr=np.zeros((240, 424)))
     _service(connector, [_detection("ball", CX_C, CY_C, 40, 40)])
 

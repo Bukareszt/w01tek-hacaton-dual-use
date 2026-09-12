@@ -188,3 +188,88 @@ def test_walk_refuses_when_nothing_subscribes_after_the_wait(connector):
     with pytest.raises(ValueError, match="nothing subscribes"):
         _walk(connector)._run(direction="forward", seconds=1.0)
     assert connector.published == []
+
+
+# --- stop must beat Nav2, and a walk must always end in a stop ---------------
+
+
+def test_stop_cancels_the_nav2_goal_before_publishing(connector, monkeypatch):
+    """A text stop alone loses: Nav2 keeps streaming /cmd_vel at 20 Hz through
+    the watchdog and overwrites text_commander's zero within 50 ms. The goal
+    has to be cancelled, and cancelled first."""
+    from wojtek_rai import nav_tools
+    from wojtek_rai.tools import StopTool
+
+    order = []
+    monkeypatch.setattr(nav_tools, "cancel_active_nav_goal", lambda: order.append("cancel") or True)
+    pub = connector.node.create_publisher.return_value
+    pub.publish.side_effect = lambda m: order.append(f"publish:{m.data}")
+
+    out = StopTool(connector=connector, **_permissions())._run()
+
+    assert order == ["cancel", f"publish:{limits.STOP_COMMAND}"]
+    # Nav2 answers the cancel asynchronously and may reject it: the tool
+    # reports a request, never a done deal.
+    assert "cancel requested" in out and "cancelled" not in out
+
+
+def test_stop_where_no_nav2_tool_is_built_has_no_goal_to_cancel(connector):
+    """WOJTEK_RAI_ODOMETRY=0 (the physical robot): no Nav2 tool is offered, so
+    no goal is ever in flight. nav_tools itself stays importable (nav2_msgs
+    is in the image, perception_tools imports it), and `stop` is the plain
+    text stop."""
+    from wojtek_rai import nav_tools
+    from wojtek_rai.tools import StopTool, build_tools
+
+    assert "navigate_to_pose" not in {t.name for t in build_tools(connector, odometry=False)}
+    assert nav_tools._ACTIVE["handle"] is None and not nav_tools._ACTIVE["in_flight"]
+    connector.published.clear()
+
+    out = StopTool(connector=connector, **_permissions())._run()
+
+    assert out == "Stop command sent."
+    assert connector.published == [
+        (limits.NAV_COMMAND_TOPIC, STRING_MSG, {"data": limits.STOP_COMMAND})
+    ]
+
+
+def test_a_walk_that_never_published_does_not_wait_for_a_subscriber_twice(connector, monkeypatch):
+    """With text_commander down the first _send fails after SUBSCRIBER_WAIT_S;
+    the closing stop must not repeat that wait (and the same error) on a robot
+    that was never told to move."""
+    from wojtek_rai.tools import _NavCommandMixin
+
+    pub = connector.node.create_publisher.return_value
+    pub.get_subscription_count.return_value = 0
+    sends = []
+    real_send = _NavCommandMixin._send
+    monkeypatch.setattr(
+        _NavCommandMixin, "_send", lambda self, c: sends.append(c) or real_send(self, c)
+    )
+
+    with pytest.raises(ValueError, match="nothing subscribes"):
+        _walk(connector)._run(direction="forward", seconds=1.0)
+
+    assert sends == ["forward"]
+    assert connector.published == []
+
+
+def test_a_failing_send_mid_walk_still_stops_the_robot(connector):
+    """The publish can fail mid-walk (link drop, subscriber gone). Without the
+    closing stop the robot would walk on until text_commander's 2 s dead-man.
+    TurnTool has had this finally; WalkTool now matches it."""
+    calls = {"n": 0}
+
+    def publish(msg):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("publisher lost the link")
+        connector.published.append((limits.NAV_COMMAND_TOPIC, STRING_MSG, {"data": msg.data}))
+
+    connector.node.create_publisher.return_value.publish.side_effect = publish
+
+    with pytest.raises(RuntimeError, match="lost the link"):
+        _walk(connector)._run(direction="forward", seconds=5.0)
+
+    commands = [p["data"] for _, _, p in connector.published]
+    assert commands == ["forward", limits.STOP_COMMAND]

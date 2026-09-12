@@ -18,10 +18,15 @@ What this node can and cannot cover:
   (`heartbeat_topic`, `/joint_states` on both the RPi and the sim) and,
   when it resumes after being stale for `heartbeat_timeout_s`, bursts zero
   Twists for `STOP_BURST_S` at the tick rate so the re-matched reader gets a
-  stop. The burst is gated by `stop_burst_on_reconnect` (default off; the
-  real-target launch enables it) because it fights the pad -- twist_mux with
-  pad priority must be in place before it is enabled on the real robot. A
-  cmd_vel age timeout inside policy_node (a ros/ change) is the real fix.
+  stop. The burst is gated by `stop_burst_on_reconnect`: off by default and
+  in the sim (no link to lose there), on in the real-target launch
+  (nav.launch.py, STOP_BURST_BY_TARGET). There is no twist_mux yet, so on
+  the real robot the pad and Nav2 both write /cmd_vel and, for the
+  STOP_BURST_S after a reconnect, the burst's zeros interleave with the
+  pad's commands (a gait stutter; the failure direction is a stop). Do not
+  drive with the pad while the nav stack runs until twist_mux with pad
+  priority lands. A cmd_vel age timeout inside policy_node (a ros/ change)
+  is the real fix.
 
     ros2 run --prefix '' python3 -m wojtek_rai.nav.cmd_vel_watchdog
 """

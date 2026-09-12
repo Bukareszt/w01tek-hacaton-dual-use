@@ -1,13 +1,21 @@
-# Experiment: RAI (RobotecAI) on the simulated Wojtek, v2
+# Experiment: RAI (RobotecAI) on Wojtek, v2
 
-> **Status: EXPERIMENTAL. Not production, not on the robot.**
-> Nothing here is deployed by `ros/deploy.sh`, and no package here is a
-> dependency of `wojtek_bringup`. Interfaces are unstable by definition.
+> **Status: EXPERIMENTAL. Not production.**
+> Movement tools are supported only in simulation. Against the physical
+> robot, over its WiFi AP, the agent has run read-only (camera, position,
+> reporting; af34698), and `walk` has been pointed at it once, with
+> `text_commander` on the robot, to measure the subscriber discovery delay
+> (4307178) -- that is not a supported configuration. The only supported
+> real-robot configuration today is `WOJTEK_RAI_READONLY=1` with
+> `WOJTEK_RAI_ODOMETRY=0`. Nothing here is deployed by `ros/deploy.sh`, and
+> no package here is a dependency of `wojtek_bringup`. Interfaces are
+> unstable by definition.
 
 A typed instruction ("stand up, walk forward for three seconds, tell me what
-you see") drives the MuJoCo-simulated Wojtek through
+you see") drives Wojtek -- the MuJoCo simulation, or the physical robot with
+the movement tools stripped -- through
 [RAI](https://github.com/RobotecAI/rai): a LangGraph ReAct agent with a small
-set of robot tools, talking to the simulation's existing ROS 2 graph. Plan and
+set of robot tools, talking to the existing ROS 2 graph. Plan and
 rationale: [docs/plans/rai-on-wojtek.md](../../docs/plans/rai-on-wojtek.md).
 
 ## How it is wired
@@ -33,8 +41,29 @@ rationale: [docs/plans/rai-on-wojtek.md](../../docs/plans/rai-on-wojtek.md).
   `/cmd_vel` with a 2 s dead-man. `/wojtek/arm`, `enable`, `zero`, `reset`,
   `joint_targets` and `/cmd_vel` are on RAI's `forbidden` list
   (`wojtek_rai/limits.py`).
-- Tools: `walk`, `stop`, `stand_up`, `lie_down`, `get_robot_position`
-  (TF `odom -> base_link`), `get_camera_image`, `wait_for_seconds`.
+- Tools, in the default sim build: `walk`, `turn` (closed-loop on the
+  odometry yaw), `stop`, `stand_up`, `lie_down`, `get_robot_position` (TF
+  `odom -> base_link`), `get_camera_image`, `wait_for_seconds`. With the nav
+  container: `navigate_to_pose`, `go_to_place`, `cancel_navigation`,
+  `get_map_pose`, `get_map_image`. With the perception container:
+  `find_objects`, `go_to_object`. Every Nav2 goal -- `go_to_object`
+  included -- is checked against the workspace box, bounded by
+  `limits.NAV_GOAL_TIMEOUT_S`, and cancellable; `stop` requests a cancel of
+  the goal in flight before it publishes, because Nav2 outruns a text stop
+  otherwise. A goal blocks the agent's turn until it ends, so a `stop` typed
+  into the same chat runs only after arrival or the timeout; a goal in
+  flight is reached only from a second tab of the same panel (see Known
+  gaps).
+- `WOJTEK_RAI_READONLY=1` leaves only `get_robot_position`,
+  `get_camera_image` and `wait_for_seconds`: every tool that can move the
+  robot goes, and `find_objects` with them (the perception tools are built
+  together with the movers). `WOJTEK_RAI_ODOMETRY=0` drops `turn` and every
+  Nav2 tool (the physical robot's `odom -> base_link` is a static identity,
+  so Nav2 cannot track it).
+- The streamlit sidebar carries an operator panel -- stand up, lie down, arm,
+  disarm, policy on/off -- and the camera feed. It calls the services itself,
+  outside the agent, and **it is not an e-stop**: it needs the WiFi link, the
+  container and the browser. The pad and the robot's own disarm are.
 - The robot's identity is a hand-written `wojtek_rai/embodiment.json`
   (RAI `EmbodimentInfo`); the `build-whoami` doc pipeline is not used yet.
 - LLM vendor is `config.toml`: Ollama over the tunnel by default; `[vendor]`
@@ -56,6 +85,10 @@ rationale: [docs/plans/rai-on-wojtek.md](../../docs/plans/rai-on-wojtek.md).
 # or, scripted
 ./experiments/wojtek_rai_v2/run.sh topics          # smoke: RAI sees the sim graph
 ./experiments/wojtek_rai_v2/run.sh chat "report your position, walk forward for 3 seconds, report again"
+
+# the physical robot, over its WiFi AP: look and report, nothing else
+WOJTEK_RAI_READONLY=1 WOJTEK_RAI_ODOMETRY=0 WOJTEK_RAI_COLOR_TRANSPORT=compressed \
+  ./experiments/wojtek_rai_v2/run.sh agent
 ```
 
 Arming stays a human action, in the simulation too: the agent has no arm
@@ -136,7 +169,7 @@ Agent tools (`wojtek_rai/perception_tools.py`):
 | `wojtek_rai/agent.py`, `app.py`, `chat.py`, `stream.py` | agent assembly, streamlit UI, terminal one-shot, turn streaming |
 | `wojtek_rai/nav_tools.py` | RAI Nav2 tools + `go_to_place` |
 | `wojtek_rai/perception_tools.py`, `perception_services.py` | `find_objects` / `go_to_object` on RAI's `/detection`; detection-only service launcher |
-| `wojtek_rai/camera_feed.py` | live colour/depth preview for the streamlit sidebar |
+| `wojtek_rai/camera_feed.py`, `arm_switch.py` | live colour/depth preview and the operator panel's service calls |
 | `wojtek_rai/nav/` | nav container glue: launch, Nav2/SLAM params, depth relay, odom relay, cmd_vel watchdog |
 | `wojtek_rai/embodiment.json` | who the robot is, for the system prompt |
 | `tests/` | model-free tests: limits, tools against a fake connector, hygiene |
@@ -160,7 +193,24 @@ Agent tools (`wojtek_rai/perception_tools.py`):
   step, measured with `run.sh bench`).
 - Navigation is sim-validated only: `map = odom` (static identity, scan
   matching off); the physical robot has no odometry source for Nav2 (plan
-  phase N4).
+  phase N4). The nav stack's `target:=real` path -- slam_toolbox owning
+  `map->odom`, the odometry preflight, the watchdog's stop burst on
+  reconnect -- has never been run against the robot, and cannot be yet: the
+  preflight module `wojtek_rai/nav/preflight.py` is not in the tree, so
+  `run.sh nav launch target:=real` shuts itself down at the preflight gate
+  (fail-safe) before slam_toolbox, the watchdog or Nav2 start.
+- `stop` reaches a Nav2 goal in flight only from a second browser tab of the
+  same streamlit panel: a goal blocks the agent's turn for up to
+  `NAV_GOAL_TIMEOUT_S` (120 s), streamlit cannot interrupt a running turn
+  until the tool returns, `chat.py` is one-shot, and the goal handle is
+  per-process (`run.sh chat "stop"` from another process reaches nothing).
+  Not verified against a goal in flight. The fix is an operator stop button
+  on the panel calling `cancel_active_nav_goal`, or a non-blocking navigate.
+- The operator panel is not an e-stop and there is no twist_mux yet: Nav2 and
+  the pad both write `/cmd_vel`, and with `target:=real` the watchdog adds
+  1 s of zero Twists after every heartbeat gap, interleaved with whatever the
+  pad sends (a stop-biased stutter). Do not drive with the pad while the nav
+  stack runs.
 - Detection thresholds (0.35/0.45) miss small or distant objects (the sim
   person at 5 m); no object memory: an object out of view must be searched
   for by turning.
