@@ -132,9 +132,15 @@ def _launch_setup(context, with_rviz, hardware):
     )
 
     nodes = [
+        # The 400 Hz control loop. On the RPi the service starts the tree
+        # under taskset -c 2,3 and isolcpus turns load balancing off there,
+        # so where each child lands is chance: measured with the whole
+        # stack on core 2 and core 3 empty. control_cpus pins this one
+        # (the service says 3) and policy_cpus the two below (2).
         Node(
             package="controller_manager",
             executable="ros2_control_node",
+            prefix=_cpu_prefix(context, "control_cpus"),
             parameters=[
                 {"robot_description": robot_description},
                 os.path.join(share, "config", "real_controllers.yaml"),
@@ -183,6 +189,7 @@ def _launch_setup(context, with_rviz, hardware):
         Node(
             package="wojtek_bringup",
             executable="real_io_node",
+            prefix=_cpu_prefix(context, "policy_cpus"),
             output="screen",
             parameters=[
                 {
@@ -194,6 +201,7 @@ def _launch_setup(context, with_rviz, hardware):
         Node(
             package="wojtek_policy",
             executable="policy_node",
+            prefix=_cpu_prefix(context, "policy_cpus"),
             output="screen",
             parameters=[
                 {
@@ -274,6 +282,18 @@ def _launch_setup(context, with_rviz, hardware):
     # the resolved policy directory so its command box matches policy_node.
     # deck_cpus keeps the JPEG encoder off the isolated RT cores on the RPi.
     deck_cpus = LaunchConfiguration("deck_cpus").perform(context)
+    # The gateway receives the raw camera image. At 640x480 a frame is
+    # 0.9 MB, hundreds of UDP fragments through the loopback, and with
+    # Cyclone's default socket buffer one lost fragment discards the whole
+    # frame: under load the gateway then sees no frames at all. So it gets
+    # its own, bigger receive buffer, appended to whatever Cyclone config
+    # the process already has (the robot's pins its interfaces there).
+    cyclone_base = os.environ.get("CYCLONEDDS_URI", "")
+    cyclone_uri = (cyclone_base + "," if cyclone_base else "") + (
+        "<CycloneDDS><Domain><Internal>"
+        '<SocketReceiveBufferSize min="8MB"/>'
+        "</Internal></Domain></CycloneDDS>"
+    )
     nodes.append(
         Node(
             package="wojtek_deck",
@@ -281,16 +301,69 @@ def _launch_setup(context, with_rviz, hardware):
             output="screen",
             condition=IfCondition(LaunchConfiguration("deck")),
             prefix=f"taskset -c {deck_cpus}" if deck_cpus else None,
+            additional_env={"CYCLONEDDS_URI": cyclone_uri},
             parameters=[
                 {
                     "policy": str(loaded.directory),
                     "port": ParameterValue(
                         LaunchConfiguration("deck_port"), value_type=int
                     ),
+                    # The panel's restart button restarts this unit; the
+                    # simulation has none, so there the button stays off.
+                    "stack_unit": (
+                        "wojtek-robot.service" if hardware == "real" else ""
+                    ),
+                    # Frames a second the gateway passes on to the panel.
+                    "stream_hz": ParameterValue(
+                        LaunchConfiguration("deck_stream_hz"), value_type=float
+                    ),
                 }
             ],
         )
     )
+
+    # The colour camera for the panel, on the robot only (the simulation
+    # renders its own). Colour alone, no depth, no point cloud, no sync:
+    # the perception stack's d435.yaml turns those on together and the
+    # RealSense node dies with SIGSEGV the moment the RGB sensor starts
+    # (see ros/deploy/deck/README.md). 640x480 rather than the sensor's
+    # 1280x720 is the Pi's budget: at full size the camera node and the
+    # gateway starved the control loop until the drives dropped to idle.
+    # initial_reset: a D435 that comes up publishing nothing (seen after a
+    # power cycle) is cured by resetting it before the streams start.
+    if hardware == "real":
+        nodes.append(
+            Node(
+                package="realsense2_camera",
+                executable="realsense2_camera_node",
+                namespace="camera",
+                name="camera",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("deck_camera")),
+                prefix=f"taskset -c {deck_cpus}" if deck_cpus else None,
+                parameters=[
+                    {
+                        "initial_reset": True,
+                        "enable_depth": False,
+                        "enable_color": True,
+                        "rgb_camera.color_profile": LaunchConfiguration(
+                            "deck_camera_profile"
+                        ),
+                        "pointcloud.enable": False,
+                        "align_depth.enable": False,
+                        "enable_rgbd": False,
+                        "enable_sync": False,
+                        # The compressed transport plugin encodes the JPEG
+                        # the gateway streams, in C++ and only while the
+                        # gateway subscribes. This is the plugin's quality
+                        # parameter as the node declares it (the leading
+                        # dot is image_transport's naming); 95, its
+                        # default, made 120 KB frames, 80 makes 40 KB.
+                        ".camera.color.image_raw.compressed.jpeg_quality": 80,
+                    }
+                ],
+            )
+        )
 
     nodes.append(
         # bash -c: mkdir the parent (rosbag2 creates the bag dir itself but
@@ -453,6 +526,12 @@ def common_launch_description(
             # one drive source at a time: with the pad on, leave the web
             # console's pad/drive alone, both publish the same /cmd_vel.
             DeclareLaunchArgument("gamepad", default_value="false"),
+            # Cores for the joy driver and the teleop node (the include
+            # picks this up as gamepad_cpus). Empty = wherever the tree
+            # runs; the service says 0,1, because on the isolated RT cores
+            # with no load balancing they shared one core with policy_node
+            # and real_io and took a fifth of it.
+            DeclareLaunchArgument("gamepad_cpus", default_value=""),
             IncludeLaunchDescription(
                 PathJoinSubstitution(
                     [
@@ -498,6 +577,19 @@ def common_launch_description(
         ),
         DeclareLaunchArgument("deck_port", default_value="8090"),
         DeclareLaunchArgument("deck_cpus", default_value=""),
+        # The panel's colour camera, robot only (deck_camera:=true in the
+        # service). Profile WxHxFPS. 640x480 is what the Pi affords next to
+        # the control loop; with the camera node doing the JPEG itself
+        # (compressed transport) 30 fps fits, and deck_stream_hz is how
+        # many of those the gateway passes on to the panel.
+        # Where the control loop and the policy side run, as taskset
+        # lists; empty = wherever the tree runs. The RPi service pins the
+        # controller to 3 and policy_node + real_io to 2 (see the nodes).
+        DeclareLaunchArgument("control_cpus", default_value=""),
+        DeclareLaunchArgument("policy_cpus", default_value=""),
+        DeclareLaunchArgument("deck_camera", default_value="false"),
+        DeclareLaunchArgument("deck_camera_profile", default_value="640x480x30"),
+        DeclareLaunchArgument("deck_stream_hz", default_value="30.0"),
         OpaqueFunction(
             function=_launch_setup,
             kwargs={"with_rviz": with_rviz, "hardware": hardware},
