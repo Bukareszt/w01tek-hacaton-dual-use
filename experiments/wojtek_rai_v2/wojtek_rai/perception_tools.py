@@ -21,6 +21,7 @@ from rai.tools.ros2.base import BaseROS2Tool
 from rai.tools.ros2.navigation.nav2_blocking import NavigateToPoseBlockingTool
 from rai_interfaces.srv import RAIGroundingDino
 from rclpy.task import Future
+from sensor_msgs.msg import CompressedImage, Image
 
 from wojtek_rai import limits
 
@@ -128,6 +129,25 @@ def _stamp(msg) -> float:
     return msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
 
+def _as_image(colour):
+    """The colour frame as sensor_msgs/Image for the detection service, which
+    takes no CompressedImage: a JPEG frame (WiFi transport) is decoded here,
+    keeping its header so the point still lands in the camera's frame."""
+    if not isinstance(colour, CompressedImage):
+        return colour
+    import cv2  # heavy import, only needed on this path
+
+    bgr = cv2.imdecode(np.frombuffer(colour.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise RuntimeError(f"undecodable compressed colour frame ({colour.format!r})")
+    img = Image()
+    img.header = colour.header
+    img.height, img.width = bgr.shape[0], bgr.shape[1]
+    img.encoding, img.is_bigendian, img.step = "bgr8", 0, bgr.shape[1] * 3
+    img.data = bgr.tobytes()
+    return img
+
+
 class _DetectMixin:
     """Shared detection pipeline for the two tools (needs a ROS2Connector)."""
 
@@ -216,7 +236,7 @@ class _DetectMixin:
         info = self._grab(limits.DEPTH_INFO_TOPIC).payload
         cinfo = self._grab(limits.COLOR_INFO_TOPIC).payload
         t_dc = self._depth_to_color_translation()
-        resp = self._call_detection(colour, names)
+        resp = self._call_detection(_as_image(colour), names)
 
         depth_arr = _depth_array(depth)
         fx_c, fy_c, cx_c, cy_c = cinfo.k[0], cinfo.k[4], cinfo.k[2], cinfo.k[5]

@@ -324,3 +324,37 @@ def test_detection_timeout_cancels_the_future_and_destroys_the_client(clock):
     assert "timed out" in out
     fut.cancel.assert_called_once()
     connector.node.destroy_client.assert_called_once_with(client)
+
+
+# --- compressed colour (the physical robot over WiFi) -----------------------
+
+
+def _compressed_colour(stamp, w=8, h=4, frame_id=OPTICAL_FRAME):
+    import cv2
+    from sensor_msgs.msg import CompressedImage
+
+    ok, buf = cv2.imencode(".jpg", np.full((h, w, 3), 90, dtype=np.uint8))
+    assert ok
+    msg = CompressedImage()
+    msg.header.stamp.sec, msg.header.stamp.nanosec = int(stamp), int((stamp % 1) * 1e9)
+    msg.header.frame_id = frame_id
+    msg.format = "rgb8; jpeg compressed bgr8"
+    msg.data = buf.tobytes()
+    return msg
+
+
+def test_detection_gets_a_decoded_image_when_the_colour_stream_is_compressed(clock):
+    from rai.communication.ros2.messages import ROS2Message
+
+    connector = make_connector(clock)
+    now = clock.time()
+    connector.last_msg[limits.COLOR_IMAGE_TOPIC] = ROS2Message(payload=_compressed_colour(now), timestamp=now)
+    client, _ = _service(connector, [])
+
+    _find(connector)._run(["ball"])
+
+    req = client.call_async.call_args.args[0]
+    img = req.source_img
+    assert (img.encoding, img.width, img.height) == ("bgr8", 8, 4)
+    assert img.header.frame_id == OPTICAL_FRAME
+    assert len(img.data) == 8 * 4 * 3

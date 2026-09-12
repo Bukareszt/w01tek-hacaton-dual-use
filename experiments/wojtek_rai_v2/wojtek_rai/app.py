@@ -56,8 +56,11 @@ def get_camera_feed():
 def camera_panel() -> None:
     """Live colour + depth preview, re-rendered on its own timer."""
     color, color_age, depth, depth_age = get_camera_feed().latest()
+    show_color = st.session_state.get("show_color", True)
     show_depth = st.session_state.get("show_depth", False)
-    if color is None:
+    if not show_color:
+        st.caption("colour preview off")
+    elif color is None:
         st.info("no camera frames yet")
     else:
         st.image(color, caption=f"colour, {color_age:.1f} s old", use_container_width=True)
@@ -124,7 +127,13 @@ def main() -> None:
     graph = get_graph()
     with st.sidebar:
         st.subheader("Camera")
+        # A stream is subscribed only while its toggle is on: over WiFi every
+        # reader costs bandwidth, so the feed subscribes nothing on its own.
+        feed = get_camera_feed()
+        st.session_state["show_color"] = st.toggle("show colour", value=True)
         st.session_state["show_depth"] = st.toggle("show depth", value=False)
+        feed.enable_color(st.session_state["show_color"])
+        feed.enable_depth(st.session_state["show_depth"])
         camera_panel()
     if "messages" not in st.session_state:
         st.session_state.messages = []

@@ -12,8 +12,24 @@ import os
 
 NAV_COMMAND_TOPIC = "/wojtek/nav_command"          # std_msgs/String, text_commander
 CMD_VEL_TOPIC = "/cmd_vel"                          # geometry_msgs/Twist, policy input
-COLOR_IMAGE_TOPIC = "/camera/camera/color/image_raw"
+COLOR_IMAGE_RAW_TOPIC = "/camera/camera/color/image_raw"
+COLOR_COMPRESSED_SUFFIX = "/compressed"
+# The colour transport the agent reads. Raw is right next to the simulator;
+# on the physical robot the raw stream (640x480 rgb8 at 30 Hz, ~27 MB/s)
+# starves over WiFi (measured: 4 frames in 10 s) while the driver's JPEG
+# transport (~1 MB/s) arrives at full rate. WOJTEK_RAI_COLOR_TRANSPORT=compressed
+# switches every colour reader (camera tool, sidebar feed, find_objects).
+COLOR_TRANSPORT = os.environ.get("WOJTEK_RAI_COLOR_TRANSPORT", "raw").strip().lower()
+if COLOR_TRANSPORT not in ("raw", "compressed"):
+    raise ValueError(f"WOJTEK_RAI_COLOR_TRANSPORT must be raw or compressed; got {COLOR_TRANSPORT!r}")
+COLOR_IMAGE_TOPIC = COLOR_IMAGE_RAW_TOPIC + (COLOR_COMPRESSED_SUFFIX if COLOR_TRANSPORT == "compressed" else "")
 DEPTH_IMAGE_TOPIC = "/camera/camera/depth/image_rect_raw"
+
+
+def is_compressed_topic(topic: str) -> bool:
+    """True for an image_transport JPEG/PNG topic (sensor_msgs/CompressedImage)."""
+    return topic.endswith(COLOR_COMPRESSED_SUFFIX)
+
 ODOM_FRAME = "odom"
 BASE_FRAME = "base_link"
 

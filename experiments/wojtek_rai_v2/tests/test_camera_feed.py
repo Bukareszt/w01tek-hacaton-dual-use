@@ -142,3 +142,40 @@ def test_grab_once_times_out_with_a_clear_error_and_still_unsubscribes(node):
     with pytest.raises(RuntimeError, match="is the camera up and the link alive"):
         grab_once(node, limits.COLOR_IMAGE_TOPIC, Image, timeout=0.01)
     node.destroy_subscription.assert_called_once_with(sub)
+
+
+# --- compressed colour (the physical robot over WiFi) -----------------------
+
+
+def _jpeg_image(w: int = 8, h: int = 4):
+    """A CompressedImage carrying a JPEG of a uniform mid-grey frame."""
+    import cv2
+    import numpy as np
+    from sensor_msgs.msg import CompressedImage
+
+    frame = np.full((h, w, 3), 128, dtype=np.uint8)
+    ok, buf = cv2.imencode(".jpg", frame)
+    assert ok
+    msg = CompressedImage()
+    msg.format = "rgb8; jpeg compressed bgr8"
+    msg.data = buf.tobytes()
+    return msg
+
+
+def test_compressed_colour_topic_subscribes_with_the_compressed_message_type(node, monkeypatch):
+    from sensor_msgs.msg import CompressedImage
+
+    compressed = limits.COLOR_IMAGE_RAW_TOPIC + "/compressed"
+    monkeypatch.setattr(limits, "COLOR_IMAGE_TOPIC", compressed)
+    feed = CameraFeed(node)
+    feed.enable_color(True)
+    msg_cls, topic, _cb, qos = node.create_subscription.call_args.args
+    assert (msg_cls, topic, qos) == (CompressedImage, compressed, qos_profile_sensor_data)
+
+
+def test_to_rgb_decodes_a_jpeg_compressed_frame():
+    from wojtek_rai.camera_feed import _to_rgb
+
+    rgb = _to_rgb(_jpeg_image(8, 4))
+    assert rgb.shape == (4, 8, 3)
+    assert abs(int(rgb.mean()) - 128) <= 2

@@ -27,10 +27,13 @@ CRED_VARS=(
   GOOGLE_API_KEY
   LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
 )
-# WOJTEK_RAI_READONLY=1 strips every movement tool from the agent (first
-# contact with the physical robot). Forwarded like the credentials, by name.
+# Every WOJTEK_RAI_* switch (READONLY=1 strips the movement tools, ODOMETRY=0
+# drops the closed-loop turn, COLOR_TRANSPORT=compressed reads the JPEG colour
+# stream over WiFi, PLACES / WORKSPACE_M bound navigation) is forwarded like
+# the credentials, by name. WOJTEK_RAI_INFERENCE_SSH is host-side only.
 CRED_ENV_ARGS=()
-for name in "${CRED_VARS[@]}" WOJTEK_RAI_READONLY; do
+for name in "${CRED_VARS[@]}" "${!WOJTEK_RAI_@}"; do
+  [ "$name" = WOJTEK_RAI_INFERENCE_SSH ] && continue
   if [ -n "${!name:-}" ]; then
     CRED_ENV_ARGS+=(-e "$name")
   fi

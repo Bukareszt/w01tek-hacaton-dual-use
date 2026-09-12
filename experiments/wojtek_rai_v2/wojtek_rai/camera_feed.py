@@ -25,7 +25,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 
 from wojtek_rai import limits
 
@@ -36,7 +36,25 @@ MAX_FRAME_AGE_S = 1.0
 GRAB_TIMEOUT_S = 5.0
 
 
-def _to_rgb(msg: Image) -> np.ndarray:
+def _message_class(topic: str):
+    """The sensor_msgs type published on `topic`: CompressedImage for an
+    image_transport `/compressed` topic, Image otherwise."""
+    return CompressedImage if limits.is_compressed_topic(topic) else Image
+
+
+def _decode_compressed(msg: CompressedImage) -> np.ndarray:
+    """JPEG/PNG CompressedImage -> RGB array (OpenCV decodes to BGR)."""
+    import cv2  # heavy import, only needed on this path
+
+    bgr = cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError(f"undecodable compressed image ({msg.format!r}, {len(msg.data)} bytes)")
+    return bgr[:, :, ::-1]
+
+
+def _to_rgb(msg: Any) -> np.ndarray:
+    if isinstance(msg, CompressedImage):
+        return _decode_compressed(msg)
     arr = np.frombuffer(msg.data, dtype=np.uint8)
     if msg.encoding == "rgb8":
         return arr.reshape(msg.height, msg.width, 3)
@@ -119,7 +137,7 @@ class CameraFeed:
         sub = self._subs.get(topic)
         if on and sub is None:
             self._subs[topic] = self._node.create_subscription(
-                Image, topic, self._receiver(topic), qos_profile_sensor_data
+                _message_class(topic), topic, self._receiver(topic), qos_profile_sensor_data
             )
         elif not on and sub is not None:
             del self._subs[topic]
