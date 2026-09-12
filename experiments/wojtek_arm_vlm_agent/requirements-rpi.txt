@@ -1,0 +1,5 @@
+# Robot host (Raspberry Pi): camera_stream.py + arm_follower.py
+opencv-python-headless>=4.9
+numpy
+pyserial
+lerobot[feetech]>=0.4   # SO-101 Feetech bus + calibration files (pulls a CPU torch wheel)
