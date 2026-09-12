@@ -1,0 +1,53 @@
+# Targeting camera settings: a plain USB webcam on the RPi.
+#
+# `/**` rather than the node's path so the file keeps working whatever
+# name/namespace the launch gives the node.
+#
+# The whole file is about one thing: getting a frame to YOLO soon after the
+# photons arrived, without spending RPi budget the walking stack needs. There
+# is no depth here and no post-processing -- if the aiming path ever needs
+# range, that is a conversation about bbox size or a fixed demo distance
+# (still an open decision in the brief), not about adding streams here.
+
+/**:
+  ros__parameters:
+    # `v4l2-ctl --list-devices` names them. NOT stable across reboots if
+    # anything else enumerates first -- if the D435 and this camera ever swap
+    # numbers mid-weekend, use the stable path instead:
+    #   /dev/v4l/by-id/usb-<vendor>_<model>-video-index0
+    device: "/dev/video0"
+
+    # 640x480 is what a detector downscales to anyway, and it is the geometry
+    # most cheap webcams actually hit 30 fps at. Going higher costs USB
+    # bandwidth on a bus already carrying the terrain camera and buys YOLO
+    # nothing.
+    image_width: 640
+    image_height: 480
+    framerate: 30.0
+
+    # MJPG, not the YUYV default. Uncompressed 640x480 at 30 fps is ~55 MB/s,
+    # which does not fit USB2 -- the camera will quietly renegotiate down to
+    # ~10 fps rather than report an error. Set to "" to leave the format alone
+    # if a particular camera misbehaves with MJPG.
+    fourcc: "MJPG"
+
+    # Intrinsics. Zero means "not calibrated", and the node says so at startup.
+    # gimbal_bridge converts a bbox offset into a pan/tilt angle, which needs a
+    # focal length -- until these are real, that math has nothing to stand on.
+    # Get them from `ros2 run camera_calibration cameracalibrator` with a
+    # checkerboard, then paste the results here.
+    # cx/cy default to the image centre when left at 0, which is close enough
+    # to true for most webcams that it is a reasonable placeholder; fx/fy have
+    # no such sane default.
+    fx: 0.0
+    fy: 0.0
+    cx: 0.0
+    cy: 0.0
+    # Written out rather than left empty: an empty list has no inferable type,
+    # and both rclpy and the parameter-file loader reject it.
+    distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # No TF is published: nothing in the targeting graph transforms between
+    # this frame and the robot body, and the terrain camera already owns the
+    # body-relative extrinsics.
+    frame_id: "targeting_camera_optical_frame"
