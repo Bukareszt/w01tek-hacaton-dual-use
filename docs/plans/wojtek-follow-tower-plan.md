@@ -28,11 +28,12 @@ from the front camera's pixel. No map and no pose.
   180° each way and a tilt axis. Its driver is PR 6 in this repo. It ships
   uncalibrated, publishes no transform, and the node that would aim the
   tower refuses to track until `fx` is real.
-- The tower team is building the gimbal node. It takes two angle targets,
-  pan and tilt, and moves the servos. Whether it reports the angles back
-  is open. The contract below assumes it does. Without feedback the
-  follow node assumes the last target was reached after a fixed servo
-  lag, which is worse but works.
+- The tower team's gimbal node is in PR 6: a Dynamixel driver and a
+  `targeting_controller` that takes a normalized detection, aims the
+  tower itself, and reports the angles it holds. On the bench the pan
+  servo answers on the bus and lands on commanded positions, but its
+  physical rotation is unconfirmed by eye, and the tilt servo does not
+  answer yet.
 - The lock-in lives on the Deck page (PR 2). A tap picks the YOLOX box,
   the page tracks it, and it streams `{"t":"track", cx, cy, w, h, fw, fh,
   label, age}` at 10 Hz and one `{"t":"unlock"}`. The page works on
@@ -58,63 +59,77 @@ from the front camera's pixel. No map and no pose.
 1. The Deck page designates and tracks, as in PR 2. It gains a camera
    selector. The tower picture is the default when the tower camera is
    up. The track message gains `"cam": "tower"` or `"front"`.
-2. The gateway serves the tower camera as a second MJPEG stream. The
-   camera node publishes the webcam's own MJPG frames as
-   `CompressedImage`, and the gateway forwards those bytes without
-   decoding and re-encoding. That keeps the second stream cheap on cores
-   0 and 1. The gateway publishes the track as `vision_msgs/Detection2D`
-   on `/wojtek/track/target`. The `frame_id` names the camera. The
-   `DriveGate` gets the follow node as a second source, as in follow v1.
-3. The gimbal node belongs to the tower team. It takes pan and tilt
-   targets on `/wojtek/gimbal/target`, moves the servos, and reports the
-   angles on `/wojtek/gimbal/state`. It knows nothing about cameras,
-   boxes, or the IMU.
-4. The follow node is new and runs two loops. The aim loop turns the
-   tracked box and the IMU into gimbal targets at 50 Hz. The body loop
-   turns the bearing, the range, and the obstacles into `/cmd_vel` at
-   10 Hz. It subscribes to the target, the gimbal state, the tower
-   `camera_info`, the D435 depth and its `camera_info`, and the IMU. It
-   publishes `/wojtek/gimbal/target`, `/wojtek/follow/cmd_vel`, and a
-   status with the state, the bearing, the range, and the nearest
-   obstacle. Its maths lives in a module without ROS, tested on synthetic
-   inputs.
+2. The gateway serves the tower camera as a second MJPEG stream at
+   `/stream.mjpg?cam=tower`, on the same JPEG path as the front camera.
+   It publishes the track as `std_msgs/String` on `/wojtek/track/target`,
+   the page's JSON plus a `stamp` of the receive time, and `{"unlock":
+   true}` once when the lock ends. A plain string, because the robot's
+   package list is fixed and offline, and the repository already uses
+   one for `/wojtek/nav_command`. The `DriveGate` gets the follow node as
+   a second source, as in follow v1.
+3. The gimbal node is the tower team's `targeting_controller` from PR 6.
+   It takes a detection, not angles. It runs its own aim loop at 40 Hz
+   and reports the angles it holds. It knows nothing about the IMU or
+   the body.
+4. The follow node is new and runs two loops. The aim relay turns the
+   10 Hz Deck track and the IMU into a 40 Hz predicted target for the
+   gimbal node. The body loop turns the bearing, the range, and the
+   obstacles into `/cmd_vel` at 10 Hz. It subscribes to the track, the
+   gimbal state and status, the tower `camera_info`, the D435 depth and
+   its `camera_info`, and the IMU. It publishes the gimbal's target,
+   `/wojtek/follow/cmd_vel`, and a status with the state, the bearing,
+   the range, and the nearest obstacle. Its maths lives in modules
+   without ROS, tested on synthetic inputs.
 
-The gimbal side and the follow side meet at two topics. Either side can
-be built and bench tested without the other.
+## The gimbal contract, as PR 6 wrote it
 
-## The gimbal contract, assumed until the tower team confirms it
+The gimbal node runs under the `targeting` namespace.
 
-- `/wojtek/gimbal/target`, `sensor_msgs/JointState`. `name` is
-  `["tower_pan", "tower_tilt"]`, `position` is the two angles in radians,
-  `velocity` and `effort` are empty. Sent at 50 Hz. The gimbal moves to
-  the newest target at its own rate and ignores nothing.
-- `/wojtek/gimbal/state`, the same message with the angles the servos
-  actually hold, stamped, at 20 Hz or better.
-- Frame. Pan zero points where the body points. Positive pan turns the
-  tower left, counterclockwise seen from above. Tilt zero is level.
-  Positive tilt points up. This is the right-hand rule on a z-up body,
-  the ROS convention, so nobody has to negate anything.
-- Range. Pan runs from −π to π. Tilt runs to the mount's limits, which
-  the tower team states. A target past a limit is clamped by the gimbal
-  and the clamped value shows in the state.
-- If the state topic does not exist, the follow node estimates the angles
-  as the target delayed by a fixed servo lag, a parameter measured on the
-  bench.
+- In: `/targeting/target`, `wojtek_targeting_msgs/LaserTarget`. The box
+  centre as `target_x` and `target_y`, normalized to −1..1 across the
+  image, with `detected`, `class_name`, `confidence`, and a stamp. The
+  node drops to searching and holds its pose when the stamp is older
+  than 0.2 s, when `detected` is false, or when `confidence` is under
+  0.65. Its aim loop takes 0.6 of the optical error per tick, rate
+  limited to 45°/s pan and 35°/s tilt, clamped to ±80° pan and −35..45°
+  tilt by default.
+- In: `/targeting/camera_info`, remapped to the tower camera. Without a
+  real focal length the node refuses to track.
+- Out: `/targeting/gimbal_state`, `sensor_msgs/JointState` with
+  `targeting_pan_joint` and `targeting_tilt_joint` in radians, at 20 Hz.
+- Out: `/targeting/status`, `wojtek_targeting_msgs/TargetingStatus` with
+  the mode, the requested and actual angles in degrees, and the
+  detection age, at 40 Hz.
+- Service: `/targeting/enable_tracking`, `std_srvs/SetBool`. The follow
+  node calls it true when a lock starts and false when it ends.
+- Optical convention in its kinematics: yaw positive means the target is
+  right of the axis, pitch positive means below it. Which way positive
+  pan and tilt turn the tower is a mounting question not yet confirmed
+  on the bench. The follow node carries `pan_sign` and `tilt_sign`
+  parameters, +1 meaning positive pan turns the tower left and positive
+  tilt points it up, the ROS right-hand convention.
 
-## What the aim loop computes
+The pan range in PR 6 is ±80°, not the 180° each way the tower was
+described with. One of the two is wrong and the bench settles it.
 
-- Pixel error. The box centre goes through the tower intrinsics and gives
-  an azimuth and elevation error in the camera frame.
-- Target. The pan target is the current pan plus a gain times the azimuth
-  error, minus the body yaw from the IMU integrated since the last Deck
-  track. The tilt target is the same with the elevation error and the
-  body pitch. The IMU term cancels body motion at the IMU's rate. The
-  Deck's 10 Hz track only corrects the slow residual, so a gain of 1.5
-  with a 250 ms delay keeps margin, as in the follow v1 bearing loop.
-- Limits. Pan targets stop 5° short of each end. When the target sits
-  past an end, the tower holds the end and the body turn brings it back.
-- Coast. While `age` grows past 0.7 s the target holds. After 3 s the
-  target returns to centre.
+## What the aim relay computes
+
+- Pixel error. The last Deck box goes through the tower intrinsics and
+  gives an optical yaw and pitch at the track's time.
+- Prediction. Between Deck tracks the relay integrates the body gyro. A
+  body yaw to the left moves a fixed target right in the picture. A pan
+  to the left moves it left. The predicted yaw is the yaw at the track
+  time, plus the body yaw since, minus the pan change since. Pitch is
+  the same with the body pitch and the tilt change. The prediction goes
+  back to a normalized point and out as a `LaserTarget` at 40 Hz.
+- Why. The gimbal node has no IMU term and a 0.2 s freshness rule. Fed
+  only the 10 Hz Deck track with a quarter second of delay, it would
+  drop to searching between frames and chase where the target was
+  during a body turn. Fed the prediction at 40 Hz, it sees a fresh
+  target that already accounts for the body's motion.
+- Coast. While the track's `age` grows past 0.7 s the relay sends the
+  prediction with zero confidence, which the gimbal node reads as hold.
+  After 3 s the lock is dropped.
 
 ## What the follow node computes
 
@@ -196,9 +211,12 @@ a turn, a sidestep, or a walk past an obstacle, and the lock holds.
 - Pi 3 headroom. Two cameras on one USB2 bus, two MJPEG streams, and two
   new nodes on cores 0 and 1. Byte passthrough for the tower stream is
   the mitigation. Measure before the leash test.
-- Gimbal feedback. Without the state topic the bearing rests on an
-  assumed servo lag. A slow or loaded servo then puts a lag error on the
-  bearing. Ask the tower team for the state topic in step 1.
+- Gimbal hardware. The pan servo's rotation is unconfirmed by eye and
+  the tilt servo does not answer. Until both move, the follow chain can
+  only be tested with the gimbal state held at zero, which is follow v1.
+- Freshness. The gimbal node holds pose when a target is older than
+  0.2 s. The relay must keep publishing at 40 Hz through every Deck gap,
+  and its stamp must be the robot's clock, not the Deck's.
 - Frame sign. A pan that turns right on positive angle flips the body
   loop into a runaway. The bench test in step 4 catches it: turn the body
   by hand and watch the tower counter-rotate.
