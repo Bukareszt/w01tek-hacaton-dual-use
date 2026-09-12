@@ -1,0 +1,19 @@
+# @package _global_
+# QUIET WALKING, iteration 14 (2026-09-12): the combined arm. v12 (slip_cmd
+# income) and v13 (5 cm glide band) each ran as one knob off v11; this
+# stacks the two on v12's recipe and restores from v12's checkpoint, so
+# the only difference from v12 is the glide band. Run it only after v13
+# has passed its own gate; otherwise v12 stands.
+# Gate as v12, plus report's impact proxy and battery vibration not up.
+# Usage:
+#   ./training/run.sh train +experiment=flat_quiet_v14_slip_glide seed=0 \
+#     restore=runs/wojtek_flat_quiet_v12_slip_cmd_s0/checkpoints/<final>
+defaults:
+  - flat_quiet_v12_slip_cmd
+
+task:
+  env:
+    reward:
+      glide_height: 0.05
+
+run_name: wojtek_flat_quiet_v14_slip_glide
