@@ -1,0 +1,10 @@
+# depthimage_to_laserscan: the D435 depth image (16UC1 mm, optical frame) as a
+# planar LaserScan for slam_toolbox and the costmaps. output_frame is the
+# camera's NON-optical frame (x forward), as the node expects.
+depthimage_to_laserscan:
+  ros__parameters:
+    output_frame: camera_depth_frame
+    range_min: 0.25
+    range_max: 4.0
+    scan_height: 12        # rows around the image centre to take the min over
+    scan_time: 0.0667      # 15 Hz

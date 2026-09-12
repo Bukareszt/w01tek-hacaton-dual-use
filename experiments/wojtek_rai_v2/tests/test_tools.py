@@ -1,0 +1,129 @@
+"""The walk/stop/posture tools against a fake connector. No ROS runtime, no LLM.
+
+Needs the rai package (runs inside the wojtek_rai container, or any interpreter
+with rai-core); skipped elsewhere.
+"""
+
+import pytest
+
+rai = pytest.importorskip("rai")
+
+from wojtek_rai import limits  # noqa: E402
+from wojtek_rai.tools import (  # noqa: E402
+    STRING_MSG,
+    TRIGGER_SRV,
+    LieDownTool,
+    StandUpTool,
+    StopTool,
+    WalkTool,
+    _permissions,
+)
+
+
+def make_fake_connector():
+    """A Mock that passes pydantic's isinstance check and records what tools send."""
+    from unittest.mock import MagicMock
+
+    from rai.communication.ros2 import ROS2Connector
+    from rai.communication.ros2.messages import ROS2Message
+
+    fake = MagicMock(spec=ROS2Connector)
+    fake.published = []
+    fake.services = []
+
+    def send_message(message, target, *, msg_type, **_):
+        fake.published.append((target, msg_type, dict(message.payload)))
+
+    class Response:
+        success = True
+        message = "ok"
+
+    def service_call(message, target, timeout_sec=5.0, *, msg_type, **_):
+        fake.services.append((target, msg_type, dict(message.payload), timeout_sec))
+        return ROS2Message(payload=Response())
+
+    fake.send_message.side_effect = send_message
+    fake.service_call.side_effect = service_call
+    # The text-command tools publish through one rclpy publisher on the node.
+    fake.node.create_publisher.return_value.publish.side_effect = lambda m: fake.published.append(
+        (limits.NAV_COMMAND_TOPIC, STRING_MSG, {"data": m.data})
+    )
+    return fake
+
+
+@pytest.fixture
+def connector():
+    return make_fake_connector()
+
+
+@pytest.fixture(autouse=True)
+def no_sleep(monkeypatch):
+    slept = []
+    monkeypatch.setattr("wojtek_rai.tools.time.sleep", lambda s: slept.append(s) if s != 0.3 else None)
+    # monotonic advances by whatever was "slept", so the loop terminates.
+    clock = {"t": 0.0}
+
+    def monotonic():
+        clock["t"] += sum(slept)
+        slept.clear()
+        return clock["t"]
+
+    monkeypatch.setattr("wojtek_rai.tools.time.monotonic", monotonic)
+    return slept
+
+
+def _walk(connector, **kw):
+    return WalkTool(connector=connector, **_permissions(), **kw)
+
+
+def test_walk_pulses_the_command_then_stops(connector):
+    out = _walk(connector)._run(direction="forward", seconds=1.0)
+
+    targets = {t for t, _, _ in connector.published}
+    assert targets == {limits.NAV_COMMAND_TOPIC}
+    assert all(m == STRING_MSG for _, m, _ in connector.published)
+    commands = [p["data"] for _, _, p in connector.published]
+    assert commands[-1] == limits.STOP_COMMAND
+    assert set(commands[:-1]) == {"forward"}
+    # 1.0 s at a 0.5 s republish period: pulses at t=0, 0.5 and 1.0, then stop.
+    assert len(commands) == 4
+    assert "stopped" in out
+
+
+def test_walk_rejects_bad_arguments_before_publishing(connector):
+    with pytest.raises(ValueError):
+        _walk(connector)._run(direction="backward", seconds=1.0)
+    with pytest.raises(ValueError):
+        _walk(connector)._run(direction="forward", seconds=limits.MOVE_MAX_SECONDS + 1)
+    assert connector.published == []
+
+
+def test_walk_refuses_when_nav_command_is_not_writable(connector):
+    tool = WalkTool(connector=connector, writable=[], forbidden=list(limits.FORBIDDEN))
+    with pytest.raises(ValueError, match="not writable"):
+        tool._run(direction="forward", seconds=1.0)
+    assert connector.published == []
+
+
+def test_stop_sends_a_single_stop(connector):
+    StopTool(connector=connector, **_permissions())._run()
+    assert connector.published == [
+        (limits.NAV_COMMAND_TOPIC, STRING_MSG, {"data": limits.STOP_COMMAND})
+    ]
+
+
+def test_posture_tools_call_only_their_trigger_service(connector):
+    StandUpTool(connector=connector, **_permissions())._run()
+    LieDownTool(connector=connector, **_permissions())._run()
+    assert [(s, m, p) for s, m, p, _ in connector.services] == [
+        (limits.STAND_UP_SERVICE, TRIGGER_SRV, {}),
+        (limits.LIE_DOWN_SERVICE, TRIGGER_SRV, {}),
+    ]
+    assert connector.published == []
+
+
+def test_forbidden_names_are_never_writable(connector):
+    tool = _walk(connector)
+    for name in limits.FORBIDDEN:
+        assert not tool.is_writable(name)
+        assert not tool.is_readable(name)
