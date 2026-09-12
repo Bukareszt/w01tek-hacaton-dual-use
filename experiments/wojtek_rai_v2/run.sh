@@ -51,7 +51,7 @@ usage: run.sh {build|up|down|shell|topics|agent|chat|bench|tunnel|inference|pull
   tunnel   SSH tunnel localhost:11435 -> Ollama on the inference box
            (WOJTEK_RAI_INFERENCE_SSH=<ssh host alias> in the root .env)
   inference  start Ollama on the inference box (user-space install in ~/ollama)
-  pull <model>  pull a model on the inference box (e.g. qwen3-vl:30b)
+  pull <model>  pull a model on the inference box (e.g. qwen3-vl:30b-a3b-instruct)
   test     model-free unit tests (EXP_PY=<host python> to run outside docker)
   nav build|up|down|shell|launch [sim]|exec <cmd>
            the navigation container: Nav2 + slam_toolbox + depth->scan
@@ -117,6 +117,16 @@ case "${1:-}" in
   inference)
     # Ollama as a user-space tarball on the box (no sudo): ~/ollama/bin/ollama
     # serve, bound to loopback, reached only through `tunnel`. Idempotent.
+    # Measured on the box with Ollama 0.34 (bench: `run.sh bench`), the env line worth
+    # running is (kill the old `ollama serve` first; this check skips the relaunch):
+    #   OLLAMA_HOST=127.0.0.1:11434 OLLAMA_KEEP_ALIVE=2h OLLAMA_CONTEXT_LENGTH=32768 \
+    #     OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=4 OLLAMA_FLASH_ATTENTION=1 \
+    #     nohup ~/ollama/bin/ollama serve >> ~/ollama-logs/serve.log 2>&1 &
+    # CONTEXT_LENGTH=32768 matches the agent's num_ctx so a client that sends no
+    # num_ctx no longer forces a ~17 s runner reload (+3 s full prompt re-eval);
+    # FA is auto-on already (documented), NUM_PARALLEL=2 and KV_CACHE_TYPE=q8_0 gave
+    # nothing (q8_0 was ~2% slower). The step time is thinking tokens: use the
+    # instruct tag (qwen3-vl:30b-a3b-instruct), not the bare qwen3-vl:30b (a thinking build).
     : "${WOJTEK_RAI_INFERENCE_SSH:?set WOJTEK_RAI_INFERENCE_SSH=<ssh alias> in the root .env}"
     exec ssh "$WOJTEK_RAI_INFERENCE_SSH" 'set -e
       mkdir -p ~/ollama-logs

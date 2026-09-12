@@ -13,8 +13,12 @@ embeddings_model = "ollama"
 [ollama]
 # Tool calling + vision are both required (the camera tool hands the model
 # an image). Change with `run.sh pull <model>` on the inference box.
-simple_model = "qwen3-vl:8b"
-complex_model = "qwen3-vl:30b"
+# Use the *-instruct tags: the bare qwen3-vl:30b / qwen3-vl:8b tags are the
+# thinking builds, and Ollama 0.34 ignores think=false for them, so every
+# ReAct step pays 150-4500 hidden thinking tokens (8-70 s). Measured with
+# `run.sh bench` (2026-09-12): instruct 0.5-3 s per step, same tool calls.
+simple_model = "qwen3-vl:30b-a3b-instruct"
+complex_model = "qwen3-vl:30b-a3b-instruct"
 embeddings_model = "qwen3-embedding:0.6b"
 base_url = "http://localhost:11435"
 

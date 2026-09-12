@@ -16,7 +16,7 @@ rationale: [docs/plans/rai-on-wojtek.md](../../docs/plans/rai-on-wojtek.md).
  laptop                                   inference box (remote GPU, aarch64)
  ┌──────────────────────────────────┐     ┌──────────────────────────┐
  │ wojtek_robot  (ros/sim.sh)       │     │ ~/ollama/bin/ollama serve │
- │   MuJoCo plant, policy_node,     │     │ qwen3-vl:30b (tools+vision)
+ │   MuJoCo plant, policy_node,     │     │ qwen3-vl:30b-a3b-instruct  │
  │   text_commander, camera         │     └────────────▲─────────────┘
  │        ▲ /wojtek/nav_command     │                  │ ssh -L 11435:11434
  │        │ /camera/.../image_raw   │                  │ (run.sh tunnel)
@@ -46,8 +46,7 @@ rationale: [docs/plans/rai-on-wojtek.md](../../docs/plans/rai-on-wojtek.md).
 # 0. once per machine
 ./experiments/wojtek_rai_v2/run.sh build           # wojtek_rai image (ros:jazzy-ros-base + rai-core)
 ./experiments/wojtek_rai_v2/run.sh inference       # Ollama on the inference box (needs WOJTEK_RAI_INFERENCE_SSH in .env)
-./experiments/wojtek_rai_v2/run.sh pull qwen3-vl:30b
-./experiments/wojtek_rai_v2/run.sh pull qwen3-vl:8b
+./experiments/wojtek_rai_v2/run.sh pull qwen3-vl:30b-a3b-instruct   # NOT the bare qwen3-vl:30b: that is the thinking build
 
 # 1. every session, three terminals
 ./ros/sim.sh --foxglove boot_pose:=folded          # MuJoCo sim; then zero -> stand_up -> arm from the console/Foxglove
@@ -155,8 +154,10 @@ Agent tools (`wojtek_rai/perception_tools.py`):
 
 ## Known gaps
 
-- `qwen3-vl:30b` is the first model tried; tool-call reliability on long
-  instructions is unmeasured.
+- `qwen3-vl:30b-a3b-instruct` is the model in use; tool-call reliability on long
+  instructions is unmeasured. The bare `qwen3-vl:30b` tag is the thinking build
+  and Ollama 0.34 ignores `think=false` for it (8-70 s of hidden thinking per
+  step, measured with `run.sh bench`).
 - Navigation is sim-validated only: `map = odom` (static identity, scan
   matching off); the physical robot has no odometry source for Nav2 (plan
   phase N4).

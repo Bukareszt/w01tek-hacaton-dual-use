@@ -44,9 +44,11 @@ OLLAMA_NUM_CTX = 32768
 
 
 def _llm_kwargs() -> dict:
-    """Vendor-specific model options. Ollama: no chain-of-thought (a 1-2k
-    token 'thinking' preamble per step made every tool call ~30 s slower
-    on qwen3-vl:8b without helping tool discipline) and a bounded context."""
+    """Vendor-specific model options. Ollama: no chain-of-thought and a
+    bounded context. reasoning=False only works on non-thinking builds
+    (config.toml uses the *-instruct tags): Ollama 0.34 ignores it for the
+    thinking tags, and a 1-4k token hidden preamble per step made every tool
+    call 8-70 s slower without helping tool discipline."""
     _, vendor = get_llm_model_config_and_vendor("complex_model")
     if vendor == "ollama":
         return {"reasoning": False, "num_ctx": OLLAMA_NUM_CTX}
