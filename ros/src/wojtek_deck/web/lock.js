@@ -78,6 +78,13 @@ export function pick(boxes, x, y, fw, fh) {
   return { x: x0, y: y0, w: side, h: side, label: null, p: 0 };
 }
 
+// Whether a drive frame carries an actual stick movement. A connected pad
+// streams a frame every tick even at rest, all zeros after the dead zone,
+// and a resting pad must not end the lock: only a moved stick does.
+export function stickMoved(frame) {
+  return !!frame && (frame.vx !== 0 || frame.vy !== 0 || frame.yaw !== 0);
+}
+
 export class Lock {
   // `box` is what pick() returned; `fw`, `fh` the frame it was picked in.
   constructor(box, fw, fh, t) {
