@@ -118,10 +118,17 @@ described with. One of the two is wrong and the bench settles it.
   gives an optical yaw and pitch at the track's time.
 - Prediction. Between Deck tracks the relay integrates the body gyro. A
   body yaw to the left moves a fixed target right in the picture. A pan
-  to the left moves it left. The predicted yaw is the yaw at the track
-  time, plus the body yaw since, minus the pan change since. Pitch is
-  the same with the body pitch and the tilt change. The prediction goes
-  back to a normalized point and out as a `LaserTarget` at 40 Hz.
+  to the left moves it right as well, because both turn the camera. The
+  predicted yaw is the yaw at the track time, plus the body yaw since,
+  plus the pan change since. Pitch is the same with the body pitch and
+  the tilt change. The prediction goes back to a normalized point and
+  out as a `LaserTarget` at 40 Hz. The track is anchored at its capture
+  time, the Deck stamp minus its age minus a measured round-trip
+  latency, so the gyro is charged from when the picture was taken.
+- Sign. The gimbal node reports the pan in the sense of its own
+  `pan_direction` setting. The follow node's `pan_sign` must equal minus
+  that setting, and the same for tilt. That is a derivation from PR 6's
+  code, not a bench fact. The bench confirms `pan_direction` itself.
 - Why. The gimbal node has no IMU term and a 0.2 s freshness rule. Fed
   only the 10 Hz Deck track with a quarter second of delay, it would
   drop to searching between frames and chase where the target was
