@@ -220,6 +220,12 @@ def _launch_setup(context, with_rviz, hardware):
                     "soft_start_s": 2.0,
                     "clamp_knee": True,
                     "watchdog_timeout_s": 0.2,
+                    # Every drive source publishes at 20 Hz while it
+                    # drives and zeroes before going quiet, so half a
+                    # second of silence means the source is gone, not
+                    # that it meant to hold: the robot stands instead
+                    # of walking on the last command it heard.
+                    "cmd_vel_timeout_s": 0.5,
                     # Same switch as the sysinfo node above, so one argument
                     # turns both topics on together.
                     "publish_timing": ParameterValue(

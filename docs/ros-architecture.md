@@ -146,9 +146,9 @@ Runtime wytrenowanej polityki RL + node ROS. Działa na RPi i w symulacji.
 | srv | `/wojtek/enable` | `std_srvs/SetBool` |
 | srv | `/wojtek/reset` | `std_srvs/Trigger` |
 
-Parametry: `policy_dir`, `joint_map_yaml`, `imu_mount_rpy` (rotacja IMU→base_link; real: `[0, π, 0]`, sim: zera), `clamp_knee`, `auto_enable`, `soft_start_s` (blend od pozy mierzonej do wyjścia polityki), `watchdog_timeout_s` (0.2 s — przy nieświeżych danych **wstrzymuje publikację**; MD80 trzyma ostatni cel), `gravity_from_accel` (filtr komplementarny zamiast kwaternionu IMU, dla IMU bez fuzji).
+Parametry: `policy_dir`, `joint_map_yaml`, `imu_mount_rpy` (rotacja IMU→base_link; real: `[0, π, 0]`, sim: zera), `clamp_knee`, `auto_enable`, `soft_start_s` (blend od pozy mierzonej do wyjścia polityki), `watchdog_timeout_s` (0.2 s — przy nieświeżych danych **wstrzymuje publikację**; MD80 trzyma ostatni cel), `cmd_vel_timeout_s` (0.5 s — komenda starsza niż to zeruje prędkości; wysokość stania zostaje, `0` wyłącza), `gravity_from_accel` (filtr komplementarny zamiast kwaternionu IMU, dla IMU bez fuzji).
 
-Zabezpieczenia: watchdog świeżości per-sensor (polityka bez IMU przeżywa dropout IMU), odrzucanie NaN w wejściach (NaN zatruwałby stan przez pętlę `last_action`), reset stanu polityki na krawędzi hold→run.
+Zabezpieczenia: watchdog świeżości per-sensor (polityka bez IMU przeżywa dropout IMU), dead-man na `/cmd_vel` (martwy nadawca = stanie w miejscu, nie marsz na ostatniej komendzie), odrzucanie NaN w wejściach (NaN zatruwałby stan przez pętlę `last_action`), reset stanu polityki na krawędzi hold→run.
 
 ## 2. `wojtek_bringup` — strona robota (Python, ament_python)
 
