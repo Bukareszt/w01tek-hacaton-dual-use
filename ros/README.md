@@ -275,6 +275,27 @@ service-driven run is watchable live and readable back afterwards. Import
 [`foxglove/layouts/robot-dashboard.json`](foxglove/layouts/README.md) to see
 it plotted.
 
+### Recording RGB + RGBD from a live run
+
+The robot's own service does not record (`bag:=false` in its local drop-in:
+the all-topics bag starved the Pi), and the Deck's camera is colour-only.
+`./record.sh` records on demand from the PC without touching the control
+stack, so the robot stays armed:
+
+```bash
+./record.sh start            # depth + aligned depth on, recorder on cores 0,1
+./record.sh status           # size so far, free space on the card
+./record.sh stop             # finalise the bag, camera back to colour-only
+./record.sh pull             # rsync the newest bag to ./bags/<name>/
+```
+
+The bag holds the JPEG colour stream, the depth aligned into the colour
+frame with both `camera_info`s and the depth->colour extrinsics (that pair
+is the RGBD product), plus `/tf`, joint states, targets, IMU, `/cmd_vel`
+and `/joy`. It is mcap, split every two minutes, and the recorder stops
+itself when the card has under 1.5 GB left. The header of `record.sh` says
+why the raw streams are not in it and how to add topics.
+
 ## Layout
 
 | Path | What |
@@ -283,6 +304,7 @@ it plotted.
 | `sim.sh`                  | PC: one-command sim session from the host (container + X11 + platform viz around `sim.launch.py`) |
 | `deploy/pc/setup-net.sh`  | PC: create the `wojtek-eth` link profile |
 | `deploy.sh`               | host orchestrator: provision + build the RPi |
+| `record.sh`               | host orchestrator: RGB + RGBD rosbag of a live run, recorded on the RPi |
 | `.env.example`            | template for secrets (Ubuntu Pro token) |
 | `deploy/rpi/flash-card.sh`| flash a fresh card: image + cloud-init + SSH key |
 | `deploy/rpi/`             | RPi provisioning: `install.sh`, network + service configs, `IMAGE.md`, `cloud-init/` |
