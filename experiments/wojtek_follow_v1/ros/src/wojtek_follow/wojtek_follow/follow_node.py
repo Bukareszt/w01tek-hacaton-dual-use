@@ -29,7 +29,11 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image, Imu, JointState
 from std_msgs.msg import String
 from std_srvs.srv import SetBool
-from wojtek_targeting_msgs.msg import LaserTarget, TargetingStatus
+
+try:
+    from wojtek_targeting_msgs.msg import LaserTarget, TargetingStatus
+except ImportError:  # the tower team's package is not built here
+    LaserTarget = TargetingStatus = None
 
 from .core import controller
 from .core.aim import AimParams, AimRelay
@@ -116,6 +120,15 @@ class FollowNode(Node):
 
         aim_rate = float(self._param("aim_rate_hz", 40.0))
         body_rate = float(self._param("body_rate_hz", 10.0))
+        # A fixed gimbal: pan and tilt are zero for ever, nothing is sent to
+        # the targeting side and nothing is expected from it.  This is the
+        # simulation and any rig without the tower, where the "tower camera"
+        # is a body-fixed camera and following is follow v1 exactly.
+        self._gimbal_fixed = bool(self._param("gimbal_fixed", False))
+        if not self._gimbal_fixed and LaserTarget is None:
+            raise RuntimeError(
+                "wojtek_targeting_msgs is not built. Build the targeting "
+                "experiment beside this one, or run with gimbal_fixed:=true.")
 
         self._relay = AimRelay(self._aim_params)
         self._state = controller.FollowState()
@@ -131,15 +144,18 @@ class FollowNode(Node):
         self._last_command = (0.0, 0.0, 0.0)
         self._last_track_cam = None
 
-        self._target_pub = self.create_publisher(LaserTarget, target_topic, 10)
         self._cmd_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
         self._status_pub = self.create_publisher(String, status_topic, 10)
-
         self.create_subscription(String, track_topic, self._on_track, 10)
-        self.create_subscription(
-            JointState, gimbal_state_topic, self._on_gimbal, qos_profile_sensor_data)
-        self.create_subscription(
-            TargetingStatus, targeting_status_topic, self._on_targeting_status, 10)
+        if self._gimbal_fixed:
+            self._target_pub = None
+            self._enable_client = None
+        else:
+            self._target_pub = self.create_publisher(LaserTarget, target_topic, 10)
+            self.create_subscription(
+                JointState, gimbal_state_topic, self._on_gimbal, qos_profile_sensor_data)
+            self.create_subscription(
+                TargetingStatus, targeting_status_topic, self._on_targeting_status, 10)
         self.create_subscription(
             CameraInfo, tower_camera_info_topic, self._on_tower_info,
             qos_profile_sensor_data)
@@ -151,7 +167,8 @@ class FollowNode(Node):
         self.create_subscription(
             Imu, imu_topic, self._on_imu, qos_profile_sensor_data)
 
-        self._enable_client = self.create_client(SetBool, enable_service)
+        if not self._gimbal_fixed:
+            self._enable_client = self.create_client(SetBool, enable_service)
 
         self._body_dt = 1.0 / body_rate
         self.create_timer(1.0 / aim_rate, self._aim_tick)
@@ -358,7 +375,7 @@ class FollowNode(Node):
         node's executor, and blocking on a service future here would stop both
         of them until the gimbal answers.
         """
-        if self._tracking_requested == enable:
+        if self._gimbal_fixed or self._tracking_requested == enable:
             return
         if not self._enable_client.service_is_ready():
             # Forget what was asked for rather than remember a request that
@@ -393,6 +410,11 @@ class FollowNode(Node):
     # --- loops -------------------------------------------------------------
 
     def _aim_tick(self):
+        if self._gimbal_fixed:
+            # The gimbal never moves, so its state is a fact this node can
+            # supply itself, and there is nobody to send a target to.
+            self._relay.on_gimbal(self._now(), 0.0, 0.0)
+            return
         target = self._relay.target(self._now())
         if target is None:
             return

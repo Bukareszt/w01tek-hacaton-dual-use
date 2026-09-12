@@ -434,6 +434,52 @@ def test_the_default_signs_are_the_tower_controllers_negated_directions(node):
     assert node._aim_params.tilt_sign == 1.0
 
 
+# --- a fixed gimbal, the simulation's case ------------------------------------
+
+@pytest.fixture
+def fixed_node(clock):
+    from conftest import Node
+    from wojtek_follow.follow_node import FollowNode
+
+    Node.overrides = {"gimbal_fixed": True}
+    try:
+        return FollowNode()
+    finally:
+        Node.overrides = {}
+
+
+def test_a_fixed_gimbal_needs_nothing_from_the_targeting_side(fixed_node):
+    node = fixed_node
+    assert GIMBAL_TOPIC not in node.subscriptions
+    assert STATUS_TOPIC not in node.subscriptions
+    assert "/targeting/enable_tracking" not in node.clients
+    lock_on(node)
+    aim_tick(node)
+    assert published(node, TARGET_TOPIC) == []
+
+
+def test_a_fixed_gimbal_gives_a_bearing_straight_ahead(fixed_node):
+    node = fixed_node
+    lock_on(node)                      # the box is at the picture's centre
+    aim_tick(node)
+    assert node._relay.bearing(1000.0) == pytest.approx((0.0, 0.0), abs=1e-6)
+    send(node, DEPTH_INFO_TOPIC, depth_info())
+    send(node, DEPTH_TOPIC, depth_image(2000))
+    body_tick(node)
+    assert status_of(node)["range_m"] == pytest.approx(2.0, abs=0.1)
+    assert published(node, CMD_TOPIC)[-1].linear.x > 0.0
+
+
+def test_a_fixed_gimbal_never_warns_about_a_stale_gimbal(fixed_node, clock):
+    node = fixed_node
+    lock_on(node)
+    aim_tick(node)
+    clock.set(1003.0)
+    aim_tick(node)
+    body_tick(node)
+    assert not any("gimbal_state" in w for w in warnings(node))
+
+
 # --- a depth camera that stops ------------------------------------------
 
 def test_a_stale_depth_frame_does_not_drive_the_walk(node, clock):

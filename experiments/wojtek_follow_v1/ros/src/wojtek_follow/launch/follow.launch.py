@@ -35,9 +35,12 @@ def _setup(context, *args, **kwargs):
     prefix = [f"taskset -c {cpus}"] if cpus else None
 
     overrides = {}
-    for name, cast in (("pan_sign", float), ("tilt_sign", float)):
+    for name, cast in (("pan_sign", float), ("tilt_sign", float),
+                       ("tower_camera_info_topic", str)):
         if arg(name):
             overrides[name] = cast(arg(name))
+    if arg("gimbal_fixed").lower() in ("true", "1", "yes"):
+        overrides["gimbal_fixed"] = True
 
     return [
         Node(
@@ -84,6 +87,17 @@ def generate_launch_description():
                             "positive tilt angle points the tower up. The "
                             "config's +1 is the negated tilt_direction of "
                             "the targeting controller.",
+            ),
+            DeclareLaunchArgument(
+                "gimbal_fixed", default_value="false",
+                description="true: no gimbal at all, pan and tilt are zero, "
+                            "nothing is sent to the targeting side. The "
+                            "simulation's setting.",
+            ),
+            DeclareLaunchArgument(
+                "tower_camera_info_topic", default_value="",
+                description="Override the config's tower camera_info topic. "
+                            "In simulation: /camera/camera/color/camera_info.",
             ),
             DeclareLaunchArgument(
                 "cpus", default_value="",

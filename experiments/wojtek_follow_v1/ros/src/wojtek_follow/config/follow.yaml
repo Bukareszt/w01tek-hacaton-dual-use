@@ -31,6 +31,13 @@
     pan_sign: -1.0
     tilt_sign: 1.0
 
+    # A fixed gimbal: pan and tilt are zero for ever, nothing is published to
+    # the targeting side and nothing is expected from it. The "tower camera"
+    # is then whatever camera_info tower_camera_info_topic points at, and
+    # following is follow v1 exactly. This is the simulation's setting, with
+    # the topic pointed at the virtual D435's colour camera_info.
+    gimbal_fixed: false
+
     # --- rates -------------------------------------------------------------
     # The gimbal node holds its pose when its target is older than 0.20 s, so
     # the relay has to publish far faster than the Deck does.
