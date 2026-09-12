@@ -37,7 +37,8 @@ def test_touchdown_speed_pools_feet_and_ignores_liftoff():
     ])
     td = touchdown_speeds(contact, vz)
     # foot 0 lands between t=1 and t=2 (0.3); foot 1 between t=2 and t=3
-    # (0.9). Liftoffs (1 -> 0) and an upward pre-contact speed count 0.
+    # (0.9). The liftoff edges (1 -> 0) contribute nothing; foot 0's
+    # upward +0.4 at t=4 sits on a liftoff edge and is not read.
     assert sorted(td.tolist()) == [0.3, 0.9]
 
 

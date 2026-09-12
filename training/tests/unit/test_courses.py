@@ -87,7 +87,7 @@ def test_sine_slalom_amplitude_and_endpoints():
 # -- catalogue -------------------------------------------------------------
 
 
-def test_catalogue_is_the_documented_twenty_seven():
+def test_catalogue_is_the_documented_twenty_five():
     assert set(course_catalogue()) == {
         "straight_10m", "arc_r3_90deg", "circle_r2", "circle_r075",
         "figure_eight_r15", "square_3m", "slalom_05m", "u_turn",
@@ -168,7 +168,8 @@ def test_sticky_rows_share_geometry_with_their_dry_baseline():
 def test_sticky_levels_bracket_the_physical_range():
     """1.5 is the realistic ceiling for rubber on rough concrete or carpet,
     2.5 is a stress level; both must sit above the model's own 0.9 and
-    above every DR draw the flat family trained on (0.9 * 1.35)."""
+    above the top DR draw of the keepers that predate the sticky arms
+    (0.9 * 1.35). The sticky arms themselves train up to 0.9 * 1.8."""
     from wojtek_rl.courses.spec import STICKY_FRICTION, STICKY_FRICTION_HI
 
     assert 0.9 * 1.35 < STICKY_FRICTION < STICKY_FRICTION_HI

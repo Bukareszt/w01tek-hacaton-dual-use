@@ -804,7 +804,8 @@ so command-line values can still override it.
 | `flat_quiet_v11_sticky_dr` | flat_quiet_baseacc | One knob: `dr.foot_friction.range=[0.4,1.8]` (effective mu 0.36-1.62, up from 1.22) so the draw covers rubber on rough concrete and carpet, where the deployed policy stumbles. 400M keeper-restore budget. Gate on the full 25-row courses table vs the start checkpoint: sticky rows up, nothing else down past max(10%, seed noise), falls and impact proxy not up. Measured 2026-09-12 (start = the HF `checkpoint/`, which is v10's network, on the kp40 plant): straight_sticky 0.55 → 0.76, circle_r1_sticky 0.46 → 0.58; a control arm (same restore and budget, no DR change) left the sticky rows flat, so the gain is the knob's. |
 | `flat_quiet_v12_slip_cmd` | flat_quiet_v11_sticky_dr | One knob: `slip_cmd=1.0`, the speed-scaled slip income, on top of the sticky DR. Measured 2026-09-12 (restore from v11): straight_sticky 0.76 → 1.00, straight_slow 0.28 → 1.12 (the slow-walk shuffle is gone), 0 falls/200, replicated on seed 1 (mean 1.050 both). Restored from the control arm's checkpoint instead (`wojtek_flat_quiet_v15_from_control_s0`) it also keeps the control's spins: mean 1.122, the night's best table. The exporter's closed-loop bound trips for the v11-restore run (3.4e-3) and passes for the control-restore run (3.6e-4). |
 | `flat_quiet_v13_glide` | flat_quiet_v11_sticky_dr | One knob: `glide_height=0.05`. REJECTED 2026-09-12: courses gate passed but the report's impact proxy rose to 57.6 m/s² (parent 25.0, start 48.7). |
-| `flat_quiet_v14_slip_glide` | flat_quiet_v12_slip_cmd | v12 + the 5 cm glide band. Not run: its glide half failed as v13. |
+| `flat_quiet_v14_slip_glide` | flat_quiet_v12_slip_cmd | v12 + the 5 cm glide band, restored from v15. Measured 2026-09-12: td_p90 0.33 in the walk ramp, the same as v15, with the lowest stance slip of the family (0.195); the band does not lower touchdowns once `slip_cmd` is on. |
+| `flat_quiet_v16_landing` | flat_quiet_v12_slip_cmd | `feet_landing_wz_floor=0.75`, restored from v15. Measured 2026-09-12: td_p90 0.34, no gain over v15; the spin floor is not the lever for touchdown speed. |
 | `getup` | getup | Safe fall recovery baseline. |
 | `jump` | jump | Commanded jump baseline. |
 | `jump_v3` | jump | Higher torque and deliberate wind-up jump recipe. |
@@ -1038,7 +1039,7 @@ machine with no usable GL drops the video with a warning and keeps the
 numbers.
 
 Cost: a single-env Python rollout loop, so measured ~30 s per 2600-step course
-per seed on CPU — roughly half an hour for the full 20 x 8 matrix, up to an
+per seed on CPU — roughly forty minutes for the full 25 x 8 matrix, up to an
 hour if most scenarios time out rather than finish. Use `--only NAME...
 --seeds 1` while iterating.
 

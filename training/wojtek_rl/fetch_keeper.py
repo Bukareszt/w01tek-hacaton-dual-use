@@ -92,7 +92,10 @@ def synthesize_record(run_name: str, experiment: str, overrides: list[str],
     Resolves the Hydra config the way `train` does (preset + overrides on
     the same config tree), builds the env once on the jax backend with a
     single world for its effective config and the actuator gains, and
-    records the provenance under `source`.
+    records the provenance under `source`. The stored env_config.sim
+    therefore says backend=jax, num_envs=1 where a trained run records
+    its training batch; the eval tools override sim themselves, so only
+    `eval` on a GPU host would notice (it steps the recorded backend).
     """
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
@@ -163,6 +166,11 @@ def fetch(ref: str, run_name: str | None, experiment: str | None,
     if not ckpt_files:
         raise SystemExit(f"{repo_id}@{revision} ships no checkpoint/ tree")
 
+    if "policy_meta.json" not in files:
+        raise SystemExit(
+            f"{repo_id}@{revision} ships no policy_meta.json; the contract "
+            "names the checkpoint step and the run, so it is required"
+        )
     meta = json.loads(
         Path(hf_hub_download(repo_id, "policy_meta.json", revision=revision))
         .read_text()
@@ -176,7 +184,18 @@ def fetch(ref: str, run_name: str | None, experiment: str | None,
         raise SystemExit(
             f"{layout['run_dir']} already exists; pass --force to rebuild it"
         )
+    if "run.json" in files and (experiment or overrides):
+        raise SystemExit(
+            f"{repo_id}@{revision} ships its own run.json; --experiment and "
+            "overrides only apply to a synthesized record"
+        )
 
+    # A rebuild replaces the whole run dir. Every reader picks the highest
+    # numbered step under checkpoints/, so a step left over from an earlier
+    # fetch would silently win over the one this fetch brings.
+    if force:
+        shutil.rmtree(layout["checkpoint"].parent, ignore_errors=True)
+        shutil.rmtree(layout["deploy"], ignore_errors=True)
     layout["checkpoint"].mkdir(parents=True, exist_ok=True)
     for f in ckpt_files:
         src = Path(hf_hub_download(repo_id, f, revision=revision))
@@ -200,6 +219,8 @@ def fetch(ref: str, run_name: str | None, experiment: str | None,
             .read_text()
         )
         record["checkpoint_dir"] = str(layout["checkpoint"].parent)
+        # The directory name is what every reader labels its output with.
+        record["run_name"] = run_name
         record["source"] = source
     else:
         if not experiment:
