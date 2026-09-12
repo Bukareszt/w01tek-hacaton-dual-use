@@ -57,6 +57,7 @@ function connectGateway() {
   gw = new WebSocket(`ws://${location.host}/ws`);
   gw.onopen = () => {
     lamp("link", true); log("gateway connected", "ok");
+    lastStatus = performance.now();
     // The MJPEG <img> does not resume on its own once the gateway went
     // away (a restart of the robot service takes it along), so every
     // reconnect points it at the stream afresh. Not when a still image
@@ -67,7 +68,26 @@ function connectGateway() {
   gw.onmessage = e => onGateway(JSON.parse(e.data));
 }
 function send(o) { if (gw && gw.readyState === 1) gw.send(JSON.stringify(o)); }
+// The gateway sends a status frame twice a second. When none arrives for
+// a while the socket is dead even if the browser has not noticed: on a
+// handheld whose wifi drops packets a lost peer can look open for minutes,
+// with LINK lit and nothing behind it. Closing it makes onclose reconnect.
+const STATUS_SILENCE_MS = 6000;
+let lastStatus = 0;
+setInterval(() => {
+  if (gw && gw.readyState === 1 && lastStatus && performance.now() - lastStatus > STATUS_SILENCE_MS) {
+    log("gateway silent -- reconnecting", "bad");
+    // Do not wait for the dead socket's close handshake, which needs the
+    // peer that is gone: detach it and open a new one right away.
+    const dead = gw;
+    dead.onclose = null; dead.onmessage = null;
+    try { dead.close(); } catch { /* already gone */ }
+    lamp("link", false); setDrive("idle");
+    connectGateway();
+  }
+}, 1000);
 function onGateway(m) {
+  if (m.t === "status") lastStatus = performance.now();
   if (m.t === "hello") {
     height = m.height_default;
     $("policy").textContent = m.policy || "";

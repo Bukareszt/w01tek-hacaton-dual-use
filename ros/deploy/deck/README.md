@@ -188,11 +188,14 @@ downloading machine runs Python 3.13 or newer.
 
 ```bash
 ./ros/src/wojtek_deck/fetch_assets.sh     # only if ros/deck_assets is empty
-rsync -az ros/deck_assets/ rpi@10.42.0.2:deck_assets/
+rsync -az ros/deck_assets/ rpi@10.42.0.2:wojtek_ws/deck_assets/
 ```
 
-Now step 5 above works. All three live in the robot's home directory, so a
-reboot keeps them.
+The store sits next to the workspace's `src/` and `install/`, which is
+where the gateway looks when it is started by the service without an
+`assets_dir` of its own. (The robot from before this step has it in
+`~/deck_assets` with a symlink at `~/wojtek_ws/deck_assets`; either
+works.) Now step 5 above works, and a reboot keeps all three.
 
 ## Read the top band
 
