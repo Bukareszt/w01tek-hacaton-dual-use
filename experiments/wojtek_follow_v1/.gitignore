@@ -1,0 +1,8 @@
+# The test run leaves these behind. The repository root ignores __pycache__
+# already; the pytest cache is ignored per project, so it is ignored here.
+.pytest_cache/
+__pycache__/
+# run.sh build runs colcon here with its default output paths.
+build/
+install/
+log/
