@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  COAST_S, LOST_S, Lock, TAP_BOX, coverMap, pick, toFrame, toViewport,
+  COAST_S, LOST_S, Lock, TAP_BOX, coverMap, pick, stickMoved, toFrame, toViewport,
 } from "../lock.js";
 
 const FW = 640, FH = 480;
@@ -146,6 +146,14 @@ test("a detection over the tap adopts a waiting lock", () => {
   assert.equal(lk.label, "bottle");     // the smaller of the two
   assert.equal(lk.state(12), "locked");
   assert.equal(lk.message(12).label, "bottle");
+});
+
+test("a resting pad is not a stick movement, a nudged one is", () => {
+  // A connected pad streams zeros every tick; that must not end a lock.
+  assert.equal(stickMoved(null), false);
+  assert.equal(stickMoved({ vx: 0, vy: 0, yaw: 0 }), false);
+  assert.equal(stickMoved({ vx: 0, vy: 0, yaw: 0.3 }), true);
+  assert.equal(stickMoved({ vx: -0.5, vy: 0, yaw: 0 }), true);
 });
 
 test("covers says whether a second tap landed on the target", () => {

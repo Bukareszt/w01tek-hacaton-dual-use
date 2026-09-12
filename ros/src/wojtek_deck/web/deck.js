@@ -20,7 +20,7 @@
 // the camera and the detector at a still image.
 import { Bridge } from "./bridge.js";
 import { Bars, Strip } from "./charts.js";
-import { Lock, pick, toFrame } from "./lock.js";
+import { Lock, pick, stickMoved, toFrame } from "./lock.js";
 
 // The instruments the telemetry bridge feeds are off unless ?telemetry=on.
 const telemetry = new URLSearchParams(location.search).get("telemetry") === "on";
@@ -468,9 +468,12 @@ function keyFrame() {
 let wasDriving = false;
 setInterval(() => {
   const frame = padIndex !== null ? padFrame() : keyFrame();
-  // The operator taking the sticks ends the lock: the same rule the
-  // gateway will apply on its side, so the two never disagree.
-  if (frame) { unlock("sticks"); send({ t: "cmd", ...frame }); wasDriving = true; }
+  // The operator moving a stick ends the lock: the same rule the gateway
+  // will apply on its side, so the two never disagree. A connected pad
+  // sends a frame every tick even at rest, so it is the movement that
+  // counts, not the frame.
+  if (stickMoved(frame)) unlock("sticks");
+  if (frame) { send({ t: "cmd", ...frame }); wasDriving = true; }
   else if (wasDriving) { send({ t: "stop" }); wasDriving = false; }
 }, 50);
 document.addEventListener("visibilitychange", () => { if (document.hidden) { keys.clear(); unlock("page hidden"); send({ t: "stop" }); } });
