@@ -970,19 +970,25 @@ scores how faithfully the robot walked a geometric path.
 
 ```bash
 ./training/run.sh courses --list                       # the catalogue, no run needed
-./training/run.sh courses --run runs/my_locomotion     # 20 scenarios x 8 seeds
+./training/run.sh courses --run runs/my_locomotion     # 25 scenarios x 8 seeds
 ./training/run.sh courses --run runs/my_locomotion \
   --only circle_r075 u_turn --seeds 4 --paths          # iterate on two rows
 ./training/run.sh courses --run runs/my_locomotion --video --paths
 ```
 
-Twenty scenarios in five families, each varying exactly one thing off the
-nominal (flat floor, model friction, 0.5 m/s, no disturbance) so a bad row has
-a single interpretation: eight path geometries (`straight_10m`,
+Twenty-five scenarios in five families, each varying exactly one thing off
+the nominal (flat floor, model friction, 0.5 m/s, no disturbance) so a bad
+row has a single interpretation: eight path geometries (`straight_10m`,
 `arc_r3_90deg`, `circle_r2`, `circle_r075`, `figure_eight_r15`, `square_3m`,
 `slalom_05m`, `u_turn`), four speed rows (`straight_slow`, `straight_fast`,
-`circle_r2_fast`, `speed_steps_straight`), two friction rows
-(`straight_slippery`, `circle_r1_slippery` at `mu = 0.4`), two impulse rows
+`circle_r2_fast`, `speed_steps_straight`), seven floor rows -- two slippery
+(`straight_slippery`, `circle_r1_slippery` at `mu = 0.4`) and five sticky
+(`straight_sticky`, `circle_r1_sticky`, `spin_left_sticky` at `mu = 1.5`,
+the realistic ceiling for rubber on rough concrete or carpet, and
+`straight_sticky_hi`, `circle_r1_sticky_hi` at `mu = 2.5`, a stress level
+past anything physical: a gait that skates or shuffles instead of lifting
+its feet fails at both levels, a stepping gait at neither, and a pivot is
+the motion that needs sliding most) -- two impulse rows
 (`straight_push`, `straight_push_fast`), and four rotate-in-place rows
 (`spin_left`/`spin_right` isolating chirality at 0.8 rad/s — a policy can be
 asymmetric; the stiff_b keeper shipped unable to spin right because nothing

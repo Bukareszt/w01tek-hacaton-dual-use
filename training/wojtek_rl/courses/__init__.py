@@ -19,7 +19,10 @@ per family -- add a course by appending to the right family's COURSES:
                                slalom_05m, u_turn
   families/speed.py            straight_slow, straight_fast, circle_r2_fast,
                                speed_steps_straight
-  families/floor.py            straight_slippery, circle_r1_slippery
+  families/floor.py            straight_slippery, circle_r1_slippery,
+                               straight_sticky, circle_r1_sticky,
+                               straight_sticky_hi, circle_r1_sticky_hi,
+                               spin_left_sticky
   families/disturbance.py      straight_push, straight_push_fast
   families/spin.py             spin_left, spin_right, spin_slow, spin_fast --
                                rotate-in-place rows (SpinCourse): a held pure
