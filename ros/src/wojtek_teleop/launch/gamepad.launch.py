@@ -12,12 +12,19 @@ the web console; see wojtek_teleop/gamepad_teleop.py for the stick mapping.
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
+    # Cores for the two nodes, as a taskset list; empty = wherever the
+    # parent runs. The robot service starts its tree on the isolated RT
+    # cores, and with load balancing off there these two landed on the
+    # same core as policy_node and real_io and took a fifth of it. They
+    # are not on the control path, so the service sends them to 0,1.
+    cpus = LaunchConfiguration("gamepad_cpus")
+    prefix = PythonExpression(["'taskset -c ", cpus, "' if '", cpus, "' else ''"])
     return LaunchDescription(
         [
             # Which /dev/input device the joy driver opens (0 = first pad).
@@ -26,10 +33,12 @@ def generate_launch_description():
             # (same reference policy_node gets); empty = the teleop node's
             # conservative default limits.
             DeclareLaunchArgument("policy", default_value=""),
+            DeclareLaunchArgument("gamepad_cpus", default_value=""),
             Node(
                 package="joy",
                 executable="joy_node",
                 output="screen",
+                prefix=prefix,
                 parameters=[
                     {
                         "device_id": ParameterValue(
@@ -47,6 +56,7 @@ def generate_launch_description():
                 package="wojtek_teleop",
                 executable="gamepad_teleop",
                 output="screen",
+                prefix=prefix,
                 parameters=[{"policy": LaunchConfiguration("policy")}],
             ),
         ]
