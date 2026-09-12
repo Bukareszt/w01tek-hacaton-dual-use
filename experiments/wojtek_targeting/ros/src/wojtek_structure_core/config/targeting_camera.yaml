@@ -1,0 +1,49 @@
+# Structure Core settings for the targeting camera.
+#
+# Deliberately much leaner than wojtek_perception_bringup/config/d435.yaml.
+# That camera feeds the walking planner and pays for post-processing, a
+# pointcloud and an aligned RGBD product. This one feeds YOLO, so the only
+# thing that matters is a clean colour frame arriving soon after the photons
+# did -- everything else is USB bandwidth and RPi cycles taken away from the
+# terrain camera that is already on the bus.
+#
+# `/**` rather than the node's path so the file keeps working whatever
+# name/namespace the launch gives the driver.
+#
+# NOTE: the driver declares every key below. An unknown key here is a hard
+# error at startup rather than a silent default, which is the opposite of the
+# realsense2_camera behaviour d435.yaml warns about.
+
+/**:
+  ros__parameters:
+    # Empty = first Structure Core on the bus. Only needs setting if a second
+    # one is ever plugged in alongside; the sensor prints its serial on the
+    # back of the housing, and the driver logs the one it opened.
+    sensor_serial: ""
+
+    # The stream YOLO consumes. Fixed at 640x480 -- the SDK offers no other
+    # visible resolution on this sensor, and it is already above what a
+    # detector downscales to.
+    enable_color: true
+    color_framerate: 30.0
+
+    # Depth is the "is the target 3 m or 12 m away" input, and is still an open
+    # question for this slice (bbox size may be enough). Left on because it is
+    # cheap at QVGA, and QVGA rather than VGA because the consumer reads a
+    # single pixel near the bbox centre -- it does not need the other 300k.
+    #
+    # CAVEAT, and it is the one that bites: this depth is NOT registered to the
+    # colour image. The two cameras sit apart on the housing, so a bbox centre
+    # in colour pixels does not index the same point in the depth image. At
+    # demo range the parallax error is small, but it is not zero, and the
+    # driver does nothing to hide it. If that turns out to matter, fix it in
+    # the consumer with the two camera_info sets, not by adding a registration
+    # pass here.
+    enable_depth: true
+    depth_framerate: 30.0
+    depth_resolution: "QVGA"    # QVGA | VGA | SXGA
+
+    # Optical frames for the published camera_info. No TF is broadcast: nothing
+    # in the targeting graph transforms between these and the robot body, and
+    # the terrain camera already owns the body-relative extrinsics.
+    frame_id_prefix: "targeting_camera"
