@@ -28,10 +28,11 @@ from the front camera's pixel. No map and no pose.
   180° each way and a tilt axis. Its driver is PR 6 in this repo. It ships
   uncalibrated, publishes no transform, and the node that would aim the
   tower refuses to track until `fx` is real.
-- Gimbal actuation is undecided. The choice is an MCU or the Pi driving
-  the Dynamixels. This plan needs one thing from either: the pan and tilt
-  angles reported back at 20 Hz or better. A gimbal that only takes
-  commands cannot give the body a bearing.
+- The tower team is building the gimbal node. It takes two angle targets,
+  pan and tilt, and moves the servos. Whether it reports the angles back
+  is open. The contract below assumes it does. Without feedback the
+  follow node assumes the last target was reached after a fixed servo
+  lag, which is worse but works.
 - The lock-in lives on the Deck page (PR 2). A tap picks the YOLOX box,
   the page tracks it, and it streams `{"t":"track", cx, cy, w, h, fw, fh,
   label, age}` at 10 Hz and one `{"t":"unlock"}`. The page works on
@@ -64,37 +65,56 @@ from the front camera's pixel. No map and no pose.
    0 and 1. The gateway publishes the track as `vision_msgs/Detection2D`
    on `/wojtek/track/target`. The `frame_id` names the camera. The
    `DriveGate` gets the follow node as a second source, as in follow v1.
-3. The gimbal node is new and belongs to the targeting experiment. It
-   subscribes to the target, the tower `camera_info`, and the IMU. It
-   commands pan and tilt and publishes them back as `JointState` on
-   `/wojtek/gimbal/state`. Its controller is in a module without ROS.
-4. The follow node is new. It subscribes to the target, the gimbal state,
-   the tower `camera_info`, the D435 depth and its `camera_info`, and the
-   IMU. It runs at 10 Hz and publishes `/wojtek/follow/cmd_vel` and a
+3. The gimbal node belongs to the tower team. It takes pan and tilt
+   targets on `/wojtek/gimbal/target`, moves the servos, and reports the
+   angles on `/wojtek/gimbal/state`. It knows nothing about cameras,
+   boxes, or the IMU.
+4. The follow node is new and runs two loops. The aim loop turns the
+   tracked box and the IMU into gimbal targets at 50 Hz. The body loop
+   turns the bearing, the range, and the obstacles into `/cmd_vel` at
+   10 Hz. It subscribes to the target, the gimbal state, the tower
+   `camera_info`, the D435 depth and its `camera_info`, and the IMU. It
+   publishes `/wojtek/gimbal/target`, `/wojtek/follow/cmd_vel`, and a
    status with the state, the bearing, the range, and the nearest
    obstacle. Its maths lives in a module without ROS, tested on synthetic
    inputs.
 
-The two new nodes share one contract: the target message, the gimbal
-state, and the two camera infos. Either side can be built and bench
-tested without the other.
+The gimbal side and the follow side meet at two topics. Either side can
+be built and bench tested without the other.
 
-## What the gimbal node computes
+## The gimbal contract, assumed until the tower team confirms it
+
+- `/wojtek/gimbal/target`, `sensor_msgs/JointState`. `name` is
+  `["tower_pan", "tower_tilt"]`, `position` is the two angles in radians,
+  `velocity` and `effort` are empty. Sent at 50 Hz. The gimbal moves to
+  the newest target at its own rate and ignores nothing.
+- `/wojtek/gimbal/state`, the same message with the angles the servos
+  actually hold, stamped, at 20 Hz or better.
+- Frame. Pan zero points where the body points. Positive pan turns the
+  tower left, counterclockwise seen from above. Tilt zero is level.
+  Positive tilt points up. This is the right-hand rule on a z-up body,
+  the ROS convention, so nobody has to negate anything.
+- Range. Pan runs from −π to π. Tilt runs to the mount's limits, which
+  the tower team states. A target past a limit is clamped by the gimbal
+  and the clamped value shows in the state.
+- If the state topic does not exist, the follow node estimates the angles
+  as the target delayed by a fixed servo lag, a parameter measured on the
+  bench.
+
+## What the aim loop computes
 
 - Pixel error. The box centre goes through the tower intrinsics and gives
   an azimuth and elevation error in the camera frame.
-- Command. The pan rate is a gain times the azimuth error, minus the body
-  yaw rate from the IMU. The tilt rate is a gain times the elevation
-  error, minus the body pitch rate. The feed-forward term cancels body
-  motion at the IMU's rate. The Deck's 10 Hz track only corrects the slow
-  residual, so a gain of 1.5 with a 250 ms delay keeps margin, as in the
-  follow v1 bearing loop.
-- Limits. Pan stops 5° short of each 180° end. When the target sits past
-  an end, the tower holds the end and the body turn brings it back. Tilt
-  has the mount's limits. Rates are capped to what the servos do without
-  overshoot, measured on the bench.
-- Coast. While `age` grows past 0.7 s the tower holds its angles. After
-  3 s it returns to centre.
+- Target. The pan target is the current pan plus a gain times the azimuth
+  error, minus the body yaw from the IMU integrated since the last Deck
+  track. The tilt target is the same with the elevation error and the
+  body pitch. The IMU term cancels body motion at the IMU's rate. The
+  Deck's 10 Hz track only corrects the slow residual, so a gain of 1.5
+  with a 250 ms delay keeps margin, as in the follow v1 bearing loop.
+- Limits. Pan targets stop 5° short of each end. When the target sits
+  past an end, the tower holds the end and the body turn brings it back.
+- Coast. While `age` grows past 0.7 s the target holds. After 3 s the
+  target returns to centre.
 
 ## What the follow node computes
 
@@ -138,10 +158,10 @@ a turn, a sidestep, or a walk past an obstacle, and the lock holds.
 
 ## Where it lives
 
-- `experiments/wojtek_targeting/ros/src/wojtek_targeting_gimbal/`, the
-  gimbal node, next to the camera driver from PR 6.
-- `experiments/wojtek_follow_v1/`, the follow node, as in the follow v1
-  plan.
+- The gimbal node lives where the tower team puts it, in the targeting
+  experiment next to the camera driver from PR 6.
+- `experiments/wojtek_follow_v1/`, the follow node with both loops, as in
+  the follow v1 plan.
 - Three things change in `ros/`. The page gets the camera selector and
   the `cam` field. The gateway gets the second stream, the track topic,
   and the drive mux. The `vision_msgs` dependency arrives. The gateway
@@ -159,13 +179,14 @@ a turn, a sidestep, or a walk past an obstacle, and the lock holds.
    selector, the `cam` field, the track topic, the drive mux with unit
    tests. One day. Measure the USB bus with both cameras streaming and the
    headroom on cores 0 and 1 with the walking loop live.
-4. Gimbal node. The controller with tests on synthetic tracks and IMU
-   rates, then the node. Bench: lock on a can, rotate the robot body by
-   hand, the tower holds the can in the picture. One to two days,
-   depending on the actuation decision.
-5. Follow node. The core with tests on synthetic depth and synthetic
-   gimbal states, then the node. The first run is in simulation with the
-   gimbal fixed at zero, which is follow v1 exactly. Two to three days.
+4. Aim loop. The maths with tests on synthetic tracks and IMU rates, then
+   the node publishing gimbal targets. Bench with the tower team's node:
+   lock on a can, rotate the robot body by hand, the tower holds the can
+   in the picture. Half a day of code, then the integration.
+5. Body loop. The core with tests on synthetic depth and synthetic gimbal
+   states, then the rest of the node. The first run is in simulation with
+   the gimbal state fixed at zero, which is follow v1 exactly. Two to
+   three days.
 6. Robot on a leash. Bearing while standing, with the target at 0°, 90°
    and 150°. Range to a standing target. A box in the path. A person with
    the can walking a circle around the robot. One day.
@@ -175,8 +196,12 @@ a turn, a sidestep, or a walk past an obstacle, and the lock holds.
 - Pi 3 headroom. Two cameras on one USB2 bus, two MJPEG streams, and two
   new nodes on cores 0 and 1. Byte passthrough for the tower stream is
   the mitigation. Measure before the leash test.
-- Gimbal feedback. An MCU that reports no angles blocks the body loop.
-  Settle this in step 1.
+- Gimbal feedback. Without the state topic the bearing rests on an
+  assumed servo lag. A slow or loaded servo then puts a lag error on the
+  bearing. Ask the tower team for the state topic in step 1.
+- Frame sign. A pan that turns right on positive angle flips the body
+  loop into a runaway. The bench test in step 4 catches it: turn the body
+  by hand and watch the tower counter-rotate.
 - Gimbal slop. Backlash and servo lag put noise on the pan angle, which
   becomes noise on the bearing. The 2° dead band and the yaw limit cover
   a few degrees. More needs a stiffer mount.
