@@ -43,6 +43,9 @@ Websocket protocol (text frames, JSON):
                                                lying, because the stack
                                                assumes the folded pose when
                                                it starts
+    {"t":"track", cx, cy, w, h, fw, fh, label, age}
+    {"t":"unlock"}                             the page's lock-in (web/lock.js),
+                                               10 Hz; not acted on here yet
 
 Threading is the web_console pattern: rclpy spins in a background thread;
 the ROS side hands data to the asyncio side with call_soon_threadsafe and
