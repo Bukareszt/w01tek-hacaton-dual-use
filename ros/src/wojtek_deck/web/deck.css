@@ -65,7 +65,9 @@ body {
 
 /* ---- the picture ------------------------------------------------------- */
 .screen { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
-#cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* The picture takes the tap that locks onto a target; a crosshair says so
+   where there is a pointer to show one. */
+#cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; cursor: crosshair; }
 #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* Dead-man: a red frame around the whole screen, blinking with the mode
    word. Red as a fill is allowed; red as small text is not. */
@@ -130,8 +132,16 @@ body {
   color: var(--on-image-2); background: var(--scrim); padding: 4px 8px;
 }
 .tag-l { left: var(--edge); }
+/* The camera selector sits in the left tag. Tags are drawn over the picture
+   and let a touch through to it, so this one takes its taps back. The chip
+   of the camera in the picture carries `on`, which fills it the way the
+   engaged buttons along the bottom are filled. */
+.cams { display: flex; align-items: center; gap: 6px; pointer-events: auto; padding: 3px 6px; }
+.cams .chip { padding: .3rem .55rem; }
 .tag-r { right: var(--edge); }
-.tag-r.on { color: var(--accent-image); }
+.tag-c { left: 50%; transform: translateX(-50%); }
+.tag-r.on, .tag-c.on { color: var(--accent-image); }
+.tag[hidden] { display: none; }
 
 /* ---- what the telemetry bridge feeds ------------------------------------ */
 /* On the robot there is no bridge, and an instrument full of dashes reads
@@ -238,6 +248,9 @@ body:not(.telemetry) .deck { align-items: flex-end; }
 }
 .drive.live { color: #fff; }
 .drive.deadman { color: var(--red-soft); animation: blink .6s steps(2) infinite; }
+/* The follow node is driving: the accent, the same colour the lock is
+   drawn in, because it is the lock that put the robot in this state. */
+.drive.follow { color: var(--accent-image); }
 
 /* ---- controls ---------------------------------------------------------- */
 /* A band along the bottom edge, where the thumbs already are. */

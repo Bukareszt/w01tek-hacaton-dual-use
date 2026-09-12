@@ -6,9 +6,11 @@ target, any laptop or phone works), and the one robot-side process it needs.
 ```
 handheld (browser)                          robot (RPi)
   page + charts + pad  --ws /ws-->            deck_gateway   --> /cmd_vel, services
-                       <--mjpg /stream.mjpg-- deck_gateway   <-- camera colour
+                                                             --> /wojtek/track/target
+                       <--mjpg /stream.mjpg-- deck_gateway   <-- front and tower cameras
                        <--ws :8765----------- foxglove_bridge <-- every topic
   detector (in the page)                      deck_gateway   <-- /det/ assets
+                                              deck_gateway   <-- /wojtek/follow/cmd_vel
 ```
 
 Three links, three jobs:
@@ -21,7 +23,10 @@ Three links, three jobs:
   side of a wifi link would protect nothing.
 - **Camera** is the gateway's MJPEG stream (`/stream.mjpg`), shown in a plain
   `<img>`. The detector reads its frames out of that same image rather than
-  opening a second stream, so detection costs the wifi nothing.
+  opening a second stream, so detection costs the wifi nothing. Two cameras
+  travel that path: `?cam=front` is the body's colour camera and `?cam=tower`
+  is the camera on the gimbal tower. The gateway subscribes to a camera only
+  while somebody watches it, so the unwatched one costs the robot nothing.
 - **Charts** read `foxglove_bridge` directly (`bridge.js` + `cdr.js`, a small
   ros2msg/CDR decoder, no library). Nothing on the robot changes to add a
   chart: subscribe to the topic in `deck.js`.
@@ -63,6 +68,8 @@ dependencies (`python3-aiohttp`): `docker compose build` in `ros/docker`.
 | D-pad up / left / right / down | paw wave / bow / sit / shake |
 | W S A D Q E, arrows | drive from a keyboard (desk testing) |
 | space | stop |
+| tap the picture | lock onto the box under the finger (below) |
+| fwd / tower chips | which camera is in the picture; switching drops the lock |
 
 The pad is read in the browser (Gamepad API), the same mapping as
 `wojtek_teleop/gamepad_teleop.py`. Buttons on the page cover the same
@@ -99,6 +106,96 @@ boxes, throwing away the duplicates, scaling back to the camera's pixels —
 so it can be tested from node. `yolox.json` holds the settings and the class
 names.
 
+### Lock-in
+
+A tap on the picture locks onto the box under the finger. The lock is
+drawn as brackets on the box's corners, in the accent, with the label under
+it, and a tag under the masthead says what is locked. From then on the page
+keeps hold of that box on its own: each pass of the detector, the box with
+the same label nearest the last one takes over, and a box that covers the
+same spot takes over whatever the network calls it this time, because a can
+flips between bottle and cup from frame to frame.
+
+A tap on empty picture makes a square around the finger and waits, drawn
+dashed and faint. The first detection to appear under it adopts the lock.
+That is for a target the network sees only up close.
+
+The page tells the gateway about the lock ten times a second:
+
+```json
+{"t": "track", "cx": 260, "cy": 250, "w": 120, "h": 300,
+ "fw": 640, "fh": 480, "label": "person", "age": 0.0, "cam": "tower"}
+```
+
+`cx, cy` is the box's centre and `w, h` its size, in pixels of a frame
+`fw` by `fh`; `cam` is the camera that frame came from; `age` is how long
+ago a detection last matched, in seconds. When the target is out of sight
+the last box is held and `age` grows; the brackets go dashed after 0.7 s
+and the lock is dropped after 3 s, with `{"t": "unlock"}` sent once.
+Nothing is sent while waiting.
+
+The lock also ends on a second tap on the target, on the sticks or the
+keys, on stop, on a camera switch, when the page is hidden, and when the
+gateway link drops. The sticks rule is the one the gateway applies on its
+side, so the two never disagree about who is driving.
+
+### What the gateway does with a lock
+
+Each `track` goes back out as `std_msgs/String` on `/wojtek/track/target`:
+the page's own JSON, the fields above and nothing else, plus a `stamp` of
+the robot-clock moment it arrived. The handheld's clock is its own and can
+be minutes out, and the gimbal node judges a target by its age, so the
+moment that counts is the one the gateway read. An `unlock` publishes
+`{"unlock": true, "stamp"}` once. A plain String carries the JSON because
+the robot's package list is fixed and offline, with no `vision_msgs` in it,
+and `/wojtek/nav_command` already travels the same way.
+
+The first `track` also arms the follow source in the drive gate, and the
+`unlock` disarms it. The follow node reads the track topic and answers on
+`/wojtek/follow/cmd_vel`, which the gateway subscribes to and feeds to the
+gate as a second drive source. A moved stick always wins: one moved stick
+or one stop ends the follow there and then, and the pad drives. A resting
+pad does not: a connected pad (the Steam Deck's own controller, always)
+streams all-zero frames twenty times a second, and while a lock is on those
+frames only keep the link alive, so a fresh follow frame drives through
+them. With the follow node quiet the resting pad's zeros drive. The dead-man
+covers follow frames exactly as it covers pad frames, and a follow frame
+with a NaN or an infinity in it is dropped whole. The mode word in the
+middle of the screen reads `follow` while follow frames drive. The `follow` lamp is
+the robot's own word for whether the lock is armed there; the page draws
+its own lock from its own state, so the two disagreeing means a `track` or
+an `unlock` went missing.
+
+Nothing here talks to the gimbal. The follow node owns
+`/targeting/enable_tracking`, and the gateway imports nothing from the
+experiment the follow node lives in. The chain as a whole is
+[the follow plan](../../../docs/plans/wojtek-follow-tower-plan.md).
+
+### Picking the camera
+
+Two chips under the masthead say which picture is on screen, `fwd` for the
+body's front camera and `tower` for the camera on the gimbal. The panel
+opens on the tower, because that is the picture the follow chain aims, and
+falls back to the front camera when no tower frame has arrived four seconds
+in. A tap on either chip is the operator's choice and ends that fallback.
+`?cam=front` opens on the front camera instead.
+
+Switching cameras drops the lock. A box is pixels of the picture it was
+tapped on, and the same pixels on the other camera point somewhere else
+entirely. The detector keeps reading the one `<img>` either way, so nothing
+about detection changes with the picture. What does change is a short
+wait: the browser keeps showing the old camera's last frame until the new
+stream's first frame decodes, so for those few hundred milliseconds the
+page drops the detector's boxes and refuses taps, and a lock can only start
+on the picture the chip names.
+
+A stream viewer with no frames to write (the tower stream on a robot without
+the tower camera) is polled every two seconds for a closed connection, so a
+page that gave up on it frees its viewer queue and the camera subscription
+without a frame ever having arrived.
+
+`lock.js` is the arithmetic on its own, tested from node like `yolox.js`.
+
 ### The assets
 
 The network and the runtime are other people's binaries, tens of megabytes,
@@ -126,6 +223,7 @@ panel loads is same-origin, so nothing else had to change.
 
 | query | what it does |
 |---|---|
+| `?cam=front` / `?cam=tower` | the opening picture (default: the tower, falling back to the front camera) |
 | `?det=off` | no detection |
 | `?det=cpu` / `?det=gpu` | pin the backend (default: try the GPU, fall back to the CPU) |
 | `?det=ws://host:port` | boxes from a detector in another process, below |
@@ -146,9 +244,12 @@ slow while the shaders compile once; after that it is quick.
 
 `?det=ws://...` puts the page back on an outside detector, kept as an
 escape hatch for anything the in-page one cannot do (a bigger network on a
-laptop, a tracker with its own state). It sends one JSON frame per pass,
-coordinates in pixels of the frame it looked at, and reads those frames from
-`http://<robot>:8090/stream.mjpg` itself:
+laptop, a tracker with its own state). It reads its frames from
+`http://<robot>:8090/stream.mjpg?cam=<front|tower>` itself. Point it at the
+camera the page is showing: the page tags a lock with the picture on screen,
+so boxes from the other camera would be sent under the wrong name. It
+answers with one JSON frame per pass, coordinates in pixels of the frame it
+looked at:
 
 ```json
 {"t": "det", "w": 640, "h": 360,
@@ -159,7 +260,7 @@ coordinates in pixels of the frame it looked at, and reads those frames from
 
 ```bash
 pytest ros/src/wojtek_deck/test          # the drive gate (dead-man), no ROS
-node --test ros/src/wojtek_deck/web/test # the CDR decoder and the YOLOX maths
+node --test ros/src/wojtek_deck/web/test # the CDR decoder, the YOLOX maths, the lock
 ```
 
 ## The look
@@ -173,8 +274,8 @@ thing the operator is actually looking at. The handheld it is drawn for is
 and everything else keeps to the edges:
 
 ```
- mark WOJTEK   link bridge cam pad det   policy   H  clock  full reload
- fwd cam · fps                                          objects · people
+ mark WOJTEK  link bridge cam pad det follow  policy  H clock  full reload
+ fwd tower · fps                                        objects · people
 
                           reticle, heading,
                         horizon, detection boxes

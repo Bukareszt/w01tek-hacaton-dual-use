@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wojtek_follow</name>
+  <version>0.1.0</version>
+  <description>
+    Follow a target the operator picked on the Deck, using the tower camera for
+    the bearing and the front D435 for the range and the obstacles.
+
+    Two loops. The aim relay turns the Deck's 10 Hz track and the body's gyro
+    into a 40 Hz target for the targeting gimbal, so the lock holds while the
+    body turns. The body loop turns the bearing, the range and a three-band
+    obstacle gate into a velocity.
+
+    This package publishes /wojtek/follow/cmd_vel, which the Deck gateway
+    treats as one drive source among several. It never publishes /cmd_vel, it
+    never talks to ros2_control, and it arms nothing.
+
+    Experimental. Nothing here is deployed by ros/deploy.sh and nothing in
+    ros/src may depend on it.
+  </description>
+  <maintainer email="marcin.wysocki@surferseo.com">Marcin Wysocki</maintainer>
+  <license>Apache License 2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <!-- The gimbal's own message package, from the wojtek_targeting experiment.
+       An experiment may depend on another experiment; nothing in ros/src may
+       depend on either. -->
+  <depend>wojtek_targeting_msgs</depend>
+  <depend>python3-numpy</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

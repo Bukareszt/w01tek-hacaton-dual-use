@@ -90,6 +90,10 @@ def _launch_setup(context, with_rviz, hardware):
     xacro_args = [
         f" kp:={pd['kp']} kd:={pd['kd']} max_torque:={drive_torque}",
         f" tau_ff:={'true' if tau_ff_on else 'false'}",
+        # The head's own clamp. The real drives take the summed cap above;
+        # the simulated plant clamps servo and head separately, like the
+        # training sim, and needs the head's share to do it.
+        f" tau_ff_scale:={tau_ff_scale if tau_ff_on else 0.0}",
         " use_imu:=", use_imu,
         " dry_run:=", LaunchConfiguration("dry_run"),
     ]
@@ -289,9 +293,16 @@ def _launch_setup(context, with_rviz, hardware):
     # its own, bigger receive buffer, appended to whatever Cyclone config
     # the process already has (the robot's pins its interfaces there).
     cyclone_base = os.environ.get("CYCLONEDDS_URI", "")
+    # `max`, not `min`: min is a hard floor and Cyclone refuses to create the
+    # node when the kernel cannot give it, which is what a Docker VM on a
+    # Mac does (no net.core.rmem_max to raise), and the gateway then dies
+    # at startup in every ./ros/sim.sh session. max asks for 8 MB and takes
+    # what the kernel allows. The robot's deploy raises the kernel limit
+    # (ros/deploy/rpi/60-wojtek-dds-buffers.conf), so there it still gets
+    # the whole 8 MB.
     cyclone_uri = (cyclone_base + "," if cyclone_base else "") + (
         "<CycloneDDS><Domain><Internal>"
-        '<SocketReceiveBufferSize min="8MB"/>'
+        '<SocketReceiveBufferSize max="8MB"/>'
         "</Internal></Domain></CycloneDDS>"
     )
     nodes.append(
@@ -316,6 +327,16 @@ def _launch_setup(context, with_rviz, hardware):
                     # Frames a second the gateway passes on to the panel.
                     "stream_hz": ParameterValue(
                         LaunchConfiguration("deck_stream_hz"), value_type=float
+                    ),
+                    # The panel's "tower" picture. The simulation has no
+                    # tower, so there the virtual D435's colour stream
+                    # stands in for it and a tower lock follows from the
+                    # front camera, which is follow v1. The robot keeps the
+                    # gateway's default, the targeting camera.
+                    **(
+                        {"tower_topic": "/camera/camera/color/image_raw",
+                         "tower_compressed": True}
+                        if hardware != "real" else {}
                     ),
                 }
             ],

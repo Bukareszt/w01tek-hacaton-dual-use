@@ -1,0 +1,24 @@
+# The follow node in the simulation (./ros/sim.sh).
+#
+# The simulation has no tower. The virtual D435's colour picture stands in
+# for the tower picture, its intrinsics for the tower's, and the gimbal is
+# held at zero, so a lock on the Deck's tower picture is a lock on the front
+# camera and following is follow v1 exactly.
+#
+# The virtual D435 is the one wojtek_pc/camera_spec.py describes: mounted
+# 0.07 m above base_link and pitched 15 degrees down. The body stands at
+# about 0.10 m in the simulation, so the camera is about 0.17 m off the
+# floor. Both numbers matter: a wrong pitch turns the floor into a wall in
+# every obstacle band and the robot never leaves BLOCKED.
+#
+# Everything else comes from follow.yaml. Launch with
+#   ros2 launch wojtek_follow follow.launch.py params_file:=<share>/config/follow_sim.yaml
+# where <share> is `ros2 pkg prefix --share wojtek_follow`.
+
+/**:
+  ros__parameters:
+    gimbal_fixed: true
+    tower_camera_info_topic: /camera/camera/color/camera_info
+    tower_pitch_deg: 15.0
+    depth_camera_pitch_deg: 15.0
+    depth_camera_height_m: 0.17
