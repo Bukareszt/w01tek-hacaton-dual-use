@@ -43,16 +43,35 @@ from wojtek_rai import limits
 # limits.py next to NAV_GOAL_TIMEOUT_S; picked up from there once it lands.
 NAV_SERVER_TIMEOUT_S: float = getattr(limits, "NAV_SERVER_TIMEOUT_S", 5.0)
 
-# The goal handle of the Nav2 goal in flight (one agent, one goal at a time),
-# so `stop` can cancel it. Cleared when `_navigate` returns.
-_ACTIVE: Dict[str, Any] = {"handle": None}
+# The Nav2 goal in flight (one agent, one goal at a time), so `stop` can
+# cancel it. `handle` exists only once Nav2 has answered the goal request;
+# `in_flight` covers the whole of `_navigate`, from the server wait to the
+# result, so a stop that lands before the handle exists is not lost: it is
+# recorded in `stop_requested` and `_send_and_wait` acts on it -- refuses to
+# send, or cancels the moment the goal is accepted. Every field is reset when
+# `_navigate` returns, so a stop between goals cannot poison the next one.
+_ACTIVE: Dict[str, Any] = {"handle": None, "in_flight": False, "stop_requested": False}
+_ACTIVE_LOCK = threading.Lock()
+
+
+def _reset_active() -> None:
+    with _ACTIVE_LOCK:
+        _ACTIVE.update(handle=None, in_flight=False, stop_requested=False)
 
 
 def cancel_active_nav_goal() -> bool:
-    """Cancel the Nav2 goal in flight, if any. Returns whether one was cancelled."""
-    handle = _ACTIVE.get("handle")
+    """Request a cancel of the Nav2 goal in flight. Returns whether there was
+    one to cancel. Only a request: Nav2 answers the cancel asynchronously and
+    may reject it (a goal already terminating), so the caller must not report
+    the goal as cancelled. A goal still waiting for Nav2's response has no
+    handle yet; it is marked and cancelled as soon as it is accepted."""
+    with _ACTIVE_LOCK:
+        if not _ACTIVE["in_flight"]:
+            return False
+        _ACTIVE["stop_requested"] = True
+        handle = _ACTIVE["handle"]
     if handle is None:
-        return False
+        return True  # _send_and_wait cancels it on acceptance, or never sends it
     try:
         handle.cancel_goal_async()
     except Exception:  # noqa: BLE001 -- best effort; the caller stops the robot anyway
@@ -114,12 +133,14 @@ class _TimedNavMixin:
                 f"goal ({x:.2f}, {y:.2f}) is outside the workspace "
                 f"{limits.WORKSPACE_MIN[:2]}..{limits.WORKSPACE_MAX[:2]}; refused"
             )
+        with _ACTIVE_LOCK:
+            _ACTIVE.update(handle=None, in_flight=True, stop_requested=False)
         try:
             return self._send_and_wait(x, y, yaw)
         except Exception as e:  # noqa: BLE001 -- the agent reads the error string
             return f"Navigate to pose action failed with exception: {type(e).__name__}: {e}"
         finally:
-            _ACTIVE["handle"] = None
+            _reset_active()
 
     def _send_and_wait(self, x: float, y: float, yaw: float) -> str:
         client = ActionClient(self.connector.node, NavigateToPose, self.action_name)
@@ -128,13 +149,27 @@ class _TimedNavMixin:
                 f"{self.action_name} action server not available "
                 "(is the wojtek_nav container running?)"
             )
+        # A stop that arrived while waiting for the server: nothing to cancel
+        # yet, so the goal is simply not sent.
+        if _ACTIVE["stop_requested"]:
+            return "navigation cancelled: stop requested before the goal was sent"
         goal_future = client.send_goal_async(self._goal(x, y, yaw))
         if not _wait(goal_future, NAV_SERVER_TIMEOUT_S):
             return f"no goal response from {self.action_name} within {NAV_SERVER_TIMEOUT_S:.0f} s"
         goal_handle = goal_future.result()
         if goal_handle is None or not goal_handle.accepted:
             return "goal rejected by Nav2"
-        _ACTIVE["handle"] = goal_handle
+        with _ACTIVE_LOCK:
+            _ACTIVE["handle"] = goal_handle
+            stop_requested = _ACTIVE["stop_requested"]
+        if stop_requested:
+            # The stop landed between send_goal_async and Nav2's answer, when
+            # there was no handle to cancel; Nav2 has the goal now.
+            goal_handle.cancel_goal_async()
+            return (
+                "navigation cancelled: stop requested while the goal was being sent; "
+                "cancel sent to Nav2, the robot is stopping"
+            )
         result_future = goal_handle.get_result_async()
         if not _wait(result_future, limits.NAV_GOAL_TIMEOUT_S):
             goal_handle.cancel_goal_async()
@@ -186,7 +221,7 @@ class CancelNavigationTool(BaseROS2Tool):
 
     def _run(self) -> str:
         if cancel_active_nav_goal():
-            return "Navigation goal cancelled."
+            return "Navigation cancel requested; Nav2 stops the robot once it takes it."
         return "No navigation goal in progress."
 
 

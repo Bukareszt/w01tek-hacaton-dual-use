@@ -208,24 +208,22 @@ def test_stop_cancels_the_nav2_goal_before_publishing(connector, monkeypatch):
     out = StopTool(connector=connector, **_permissions())._run()
 
     assert order == ["cancel", f"publish:{limits.STOP_COMMAND}"]
-    assert "cancelled" in out
+    # Nav2 answers the cancel asynchronously and may reject it: the tool
+    # reports a request, never a done deal.
+    assert "cancel requested" in out and "cancelled" not in out
 
 
-def test_stop_still_works_where_the_nav2_tools_are_not_built(connector, monkeypatch):
-    """WOJTEK_RAI_ODOMETRY=0 (the physical robot): nav_tools is not part of the
-    tool set, and `stop` must not disappear or raise with it."""
-    import builtins
+def test_stop_where_no_nav2_tool_is_built_has_no_goal_to_cancel(connector):
+    """WOJTEK_RAI_ODOMETRY=0 (the physical robot): no Nav2 tool is offered, so
+    no goal is ever in flight. nav_tools itself stays importable (nav2_msgs
+    is in the image, perception_tools imports it), and `stop` is the plain
+    text stop."""
+    from wojtek_rai import nav_tools
+    from wojtek_rai.tools import StopTool, build_tools
 
-    from wojtek_rai.tools import StopTool
-
-    real_import = builtins.__import__
-
-    def no_nav_tools(name, *args, **kwargs):
-        if name == "wojtek_rai.nav_tools":
-            raise ImportError("no Nav2 tools on this target")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", no_nav_tools)
+    assert "navigate_to_pose" not in {t.name for t in build_tools(connector, odometry=False)}
+    assert nav_tools._ACTIVE["handle"] is None and not nav_tools._ACTIVE["in_flight"]
+    connector.published.clear()
 
     out = StopTool(connector=connector, **_permissions())._run()
 
@@ -233,6 +231,27 @@ def test_stop_still_works_where_the_nav2_tools_are_not_built(connector, monkeypa
     assert connector.published == [
         (limits.NAV_COMMAND_TOPIC, STRING_MSG, {"data": limits.STOP_COMMAND})
     ]
+
+
+def test_a_walk_that_never_published_does_not_wait_for_a_subscriber_twice(connector, monkeypatch):
+    """With text_commander down the first _send fails after SUBSCRIBER_WAIT_S;
+    the closing stop must not repeat that wait (and the same error) on a robot
+    that was never told to move."""
+    from wojtek_rai.tools import _NavCommandMixin
+
+    pub = connector.node.create_publisher.return_value
+    pub.get_subscription_count.return_value = 0
+    sends = []
+    real_send = _NavCommandMixin._send
+    monkeypatch.setattr(
+        _NavCommandMixin, "_send", lambda self, c: sends.append(c) or real_send(self, c)
+    )
+
+    with pytest.raises(ValueError, match="nothing subscribes"):
+        _walk(connector)._run(direction="forward", seconds=1.0)
+
+    assert sends == ["forward"]
+    assert connector.published == []
 
 
 def test_a_failing_send_mid_walk_still_stops_the_robot(connector):

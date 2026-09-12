@@ -459,9 +459,20 @@ def test_go_to_object_refuses_when_the_nav_action_is_not_writable(clock, nav):
     assert nav_tools._ACTIVE["handle"] is None
 
 
-def test_the_workspace_bounds_kwargs_really_are_dead(clock):
+def test_the_workspace_bounds_kwargs_really_are_dead(clock, monkeypatch):
     """nav_tools says rai-core 2.12 ignores workspace_bounds_*; build_perception_tools
-    used to pass them anyway, which read as a box that was never enforced."""
+    used to pass them anyway, which read as a box that was never enforced.
+    pydantic drops unknown kwargs silently, so the build is checked with
+    extras forbidden: re-adding the kwargs raises here."""
+    from pydantic import ConfigDict
+
     assert "workspace_bounds_min" not in pt.GoToObjectTool.model_fields
+
+    class _NoExtras(pt.GoToObjectTool):
+        model_config = ConfigDict(extra="forbid")
+
+    monkeypatch.setattr(pt, "GoToObjectTool", _NoExtras)
+    with pytest.raises(Exception, match="xtra"):
+        _NoExtras(connector=make_connector(clock), **_permissions(), workspace_bounds_min=(0, 0, 0))
     names = {t.name for t in pt.build_perception_tools(make_connector(clock), _permissions())}
     assert names == {"find_objects", "go_to_object"}

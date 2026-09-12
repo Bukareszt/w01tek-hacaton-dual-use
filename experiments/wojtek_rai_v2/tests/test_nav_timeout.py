@@ -105,18 +105,83 @@ def test_never_completing_result_times_out_and_cancels_the_goal(monkeypatch, fas
 
 
 def test_cancel_active_nav_goal_is_a_noop_when_nothing_is_active():
-    nav_tools._ACTIVE["handle"] = None
+    nav_tools._reset_active()
     assert cancel_active_nav_goal() is False
+    assert nav_tools._ACTIVE["stop_requested"] is False  # nothing to poison
 
 
 def test_cancel_active_nav_goal_cancels_the_handle_in_flight():
     handle = _GoalHandle(_Future(done=False))
-    nav_tools._ACTIVE["handle"] = handle
+    nav_tools._ACTIVE.update(handle=handle, in_flight=True)
     try:
         assert cancel_active_nav_goal() is True
         assert handle.cancelled == 1
     finally:
-        nav_tools._ACTIVE["handle"] = None
+        nav_tools._reset_active()
+
+
+# --- a stop that lands before Nav2 has answered the goal request --------------
+#
+# The handle exists only once Nav2 accepts the goal. A `stop` from another
+# thread (a second tab of the same panel) in the window between
+# send_goal_async and the response used to cancel nothing and report success
+# while the goal went on to drive for NAV_GOAL_TIMEOUT_S.
+
+
+def _succeeded():
+    from types import SimpleNamespace
+
+    from action_msgs.msg import GoalStatus
+
+    return _Future(result=SimpleNamespace(status=GoalStatus.STATUS_SUCCEEDED))
+
+
+def test_stop_between_send_and_acceptance_cancels_the_goal_on_acceptance(monkeypatch, fast_timeouts):
+    handle = _GoalHandle(_succeeded())
+    seen = {}
+
+    class _SlowNav2(_ActionClient):
+        def send_goal_async(self, goal):
+            # The stop arrives while Nav2 is still deciding: no handle yet.
+            seen["stop"] = cancel_active_nav_goal()
+            seen["handle_at_stop"] = nav_tools._ACTIVE["handle"]
+            return _Future(result=self.goal_handle)
+
+    monkeypatch.setattr(nav_tools, "ActionClient", lambda *a, **k: _SlowNav2(handle))
+
+    out = _Tool()._navigate(1.0, 0.0, 0.0)
+
+    assert seen == {"stop": True, "handle_at_stop": None}
+    assert handle.cancelled == 1
+    assert "cancelled" in out and "successful" not in out
+    assert nav_tools._ACTIVE == {"handle": None, "in_flight": False, "stop_requested": False}
+
+
+def test_stop_while_waiting_for_the_server_means_the_goal_is_never_sent(monkeypatch, fast_timeouts):
+    class _Nav2(_ActionClient):
+        def wait_for_server(self, timeout_sec=None):
+            assert cancel_active_nav_goal() is True
+            return True
+
+        def send_goal_async(self, goal):
+            pytest.fail("a goal must not be sent after a stop")
+
+    monkeypatch.setattr(nav_tools, "ActionClient", lambda *a, **k: _Nav2(None))
+
+    out = _Tool()._navigate(1.0, 0.0, 0.0)
+
+    assert "cancelled" in out and "before the goal was sent" in out
+    assert nav_tools._ACTIVE["in_flight"] is False
+
+
+def test_a_stop_between_goals_does_not_poison_the_next_one(monkeypatch, fast_timeouts):
+    nav_tools._reset_active()
+    assert cancel_active_nav_goal() is False
+    handle = _GoalHandle(_succeeded())
+    monkeypatch.setattr(nav_tools, "ActionClient", lambda *a, **k: _ActionClient(handle))
+
+    assert "successful" in _Tool()._navigate(1.0, 0.0, 0.0)
+    assert handle.cancelled == 0
 
 
 def test_goal_outside_the_workspace_is_refused_before_any_client_is_made(monkeypatch):

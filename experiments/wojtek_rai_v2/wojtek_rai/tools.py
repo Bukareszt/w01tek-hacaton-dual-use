@@ -137,16 +137,21 @@ class WalkTool(_NavCommandMixin, BaseROS2Tool):
         # The stop is sent whatever ends the loop -- including _send raising
         # mid-walk (text_commander's subscription lost over the WiFi AP);
         # otherwise the robot would keep walking until the 2 s dead-man fires.
-        # Same shape as TurnTool.
+        # Same shape as TurnTool. Not when nothing was ever published: there
+        # is nothing to stop, and the stop's own subscriber wait would double
+        # the "text_commander is not running" error to ~2x SUBSCRIBER_WAIT_S.
+        sent = False
         try:
             while True:
                 self._send(d)
+                sent = True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 time.sleep(min(limits.REPUBLISH_PERIOD_S, remaining))
         finally:
-            self._send(limits.STOP_COMMAND)
+            if sent:
+                self._send(limits.STOP_COMMAND)
         return f"Walked {d} for {s:.1f} s; the robot is now stopped."
 
 
@@ -191,6 +196,8 @@ class TurnTool(_NavCommandMixin, BaseROS2Tool):
         # The stop command is sent whatever ends the loop -- target reached,
         # timeout, stall, or _yaw() raising (TF lost over WiFi); otherwise the
         # robot would keep turning until text_commander's dead-man fires.
+        # Not when nothing was published (see WalkTool).
+        sent = False
         try:
             # The gait keeps turning ~0.25 rad after the stop command; stop early.
             while abs(turned) < abs(math.radians(target)) - limits.TURN_STOP_LEAD_RAD:
@@ -203,12 +210,14 @@ class TurnTool(_NavCommandMixin, BaseROS2Tool):
                     stalled = True
                     break
                 self._send(direction)
+                sent = True
                 time.sleep(limits.REPUBLISH_PERIOD_S / 2)
                 # One TF lookup per pulse: each carries a 2 s timeout, and two
                 # of them could push the pulse period past the dead-man.
                 turned = _wrap_angle(self._yaw() - y0)
         finally:
-            self._send(limits.STOP_COMMAND)
+            if sent:
+                self._send(limits.STOP_COMMAND)
         if stalled:
             return (
                 f"Turn aborted: odometry yaw did not change in {TURN_STALL_SECONDS:.0f} s "
@@ -221,22 +230,23 @@ class TurnTool(_NavCommandMixin, BaseROS2Tool):
 
 
 def _cancel_nav_goal() -> bool:
-    """Cancel the Nav2 goal in flight, if any. False where the Nav2 tools are
-    not part of this build at all (WOJTEK_RAI_ODOMETRY=0, the physical robot):
-    `stop` must stay available there, so the import is done here and its
-    failure is not an error."""
-    try:
-        from wojtek_rai.nav_tools import cancel_active_nav_goal
-    except Exception:  # noqa: BLE001 -- no Nav2 tools on this target
-        return False
+    """Request a cancel of the Nav2 goal in flight, if any. The import is
+    local only to keep tools.py free of a module-level dependency on
+    nav_tools (nav2_msgs, tf_transformations); the module is always
+    importable where `stop` exists, since build_tools pulls in
+    perception_tools, which imports it. Where no Nav2 tool is built
+    (WOJTEK_RAI_ODOMETRY=0, the physical robot) there is simply never a goal
+    in flight and this returns False."""
+    from wojtek_rai.nav_tools import cancel_active_nav_goal
+
     return cancel_active_nav_goal()
 
 
 class StopTool(_NavCommandMixin, BaseROS2Tool):
     name: str = "stop"
     description: str = (
-        "Stop the robot immediately: cancels the navigation goal in progress, if any, "
-        "and stops a walk."
+        "Stop the robot immediately: requests a cancel of the navigation goal in "
+        "progress, if any, and stops a walk."
     )
 
     def _run(self) -> str:
@@ -244,11 +254,12 @@ class StopTool(_NavCommandMixin, BaseROS2Tool):
         # text_commander's zero Twist is overwritten within 50 ms. So the goal
         # has to go first; the text stop is what ends a `walk`. Cancelling
         # before publishing also means a raising _send (no text_commander)
-        # still leaves navigation cancelled.
-        cancelled = _cancel_nav_goal()
+        # still leaves the cancel requested. Nav2 answers the cancel
+        # asynchronously and may reject it, hence "requested", not "cancelled".
+        cancel_requested = _cancel_nav_goal()
         self._send(limits.STOP_COMMAND)
-        if cancelled:
-            return "Navigation goal cancelled; stop command sent."
+        if cancel_requested:
+            return "Navigation cancel requested; stop command sent."
         return "Stop command sent."
 
 
