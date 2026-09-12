@@ -2,7 +2,7 @@
 
 Deliberately thin. The only job is to get frames onto a topic with as little
 latency and CPU as the RPi can manage, because everything interesting happens
-downstream (YOLO, then gimbal_bridge).
+downstream (YOLO, then targeting_controller).
 """
 
 import cv2
@@ -24,7 +24,7 @@ class UsbCameraNode(Node):
         self._frame_id = self.declare_parameter(
             "frame_id", "targeting_camera_optical_frame").value
 
-        # Intrinsics, if this camera has ever been calibrated. gimbal_bridge
+        # Intrinsics, if this camera has ever been calibrated. targeting_controller
         # needs fx/fy to turn a bbox offset into a pan/tilt angle -- with them
         # left at zero it has nothing to work from, so say so loudly once
         # rather than letting it silently aim at the wrong place.
@@ -85,7 +85,8 @@ class UsbCameraNode(Node):
         if self._fx <= 0.0 or self._fy <= 0.0:
             self.get_logger().warn(
                 "fx/fy are unset: camera_info will carry no focal length, and "
-                "gimbal_bridge cannot convert pixels to angles. Run a "
+                "targeting_controller cannot convert pixels to angles and "
+                "refuses to track. Run a "
                 "calibration and put the result in the params file.")
 
         return capture

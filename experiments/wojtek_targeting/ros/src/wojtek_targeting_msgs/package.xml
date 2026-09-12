@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wojtek_targeting_msgs</name>
+  <version>0.1.0</version>
+  <description>
+    The interfaces of the wojtek_targeting experiment: the LaserTarget a
+    detector publishes, the TargetingStatus the gimbal controller reports,
+    and the manual-angle service used for bench calibration.
+
+    Separate from wojtek_targeting so that package can stay ament_python:
+    a package cannot both generate interfaces and be a plain Python package
+    without the two fighting over the same install directory.
+  </description>
+  <maintainer email="kubastaudt@gmail.com">Jakub Staudt</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <depend>std_msgs</depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

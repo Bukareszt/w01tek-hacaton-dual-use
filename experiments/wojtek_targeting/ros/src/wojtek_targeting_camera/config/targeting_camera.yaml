@@ -32,8 +32,8 @@
     fourcc: "MJPG"
 
     # Intrinsics. Zero means "not calibrated", and the node says so at startup.
-    # gimbal_bridge converts a bbox offset into a pan/tilt angle, which needs a
-    # focal length -- until these are real, that math has nothing to stand on.
+    # targeting_controller converts a bbox offset into a pan/tilt angle, which
+    # needs a focal length -- until these are real, it refuses to track at all.
     # Get them from `ros2 run camera_calibration cameracalibrator` with a
     # checkerboard, then paste the results here.
     # cx/cy default to the image centre when left at 0, which is close enough

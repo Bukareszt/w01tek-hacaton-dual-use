@@ -51,7 +51,7 @@ Two traps worth knowing before they cost you an hour:
 ## Calibration
 
 `fx`/`fy` ship as zero, meaning uncalibrated, and the node warns about it at
-startup. This matters more than it looks: `gimbal_bridge` turns a bbox offset
+startup. This matters more than it looks: `targeting_controller` turns a bbox offset
 into a pan/tilt angle, and without a focal length that conversion has nothing to
 stand on — the gimbal will move, but not to the right place.
 
