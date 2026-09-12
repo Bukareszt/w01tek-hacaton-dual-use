@@ -14,7 +14,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # cv_bridge: rai.tools.ros2.generic.topics imports it at module scope.
 # nav2-msgs + nav2-simple-commander: rai.tools.ros2 imports its Nav2 tools
-# unconditionally (none are used here, but the package must import).
+# unconditionally, and wojtek_rai/nav_tools.py builds on them (the Nav2 stack
+# itself runs in the separate wojtek_nav container).
 # tf-transformations: exec dependency of rai_interfaces.
 # rmw-cyclonedds-cpp: Wojtek's DDS (ros/docker/compose.yaml).
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,8 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # rai_interfaces (HRIMessage etc.), pinned by SHA in ros/rai_interfaces.repos.
-# Not on packages.ros.org, so it is built here. Its exec-only deps (Nav2,
-# portaudio) are skipped: this experiment uses neither.
+# Not on packages.ros.org, so it is built here. Its exec-only portaudio dep is
+# skipped: this experiment has no audio.
 WORKDIR /rai_ws
 COPY ros/rai_interfaces.repos /rai_ws/rai_interfaces.repos
 RUN mkdir -p src && vcs import src < rai_interfaces.repos && \
