@@ -98,6 +98,11 @@ MOVE_MIN_SECONDS = 0.2
 REPUBLISH_PERIOD_S = 0.5
 TEXT_COMMANDER_DEADMAN_S = 2.0
 TURN_MAX_SECONDS = 15.0
+# text_commander's subscription on the command topic appears ~2 s after a
+# publisher is created when it runs on the robot (WiFi AP, measured); the
+# tools wait this long for it before deciding nobody is listening.
+SUBSCRIBER_WAIT_S = 5.0
+SUBSCRIBER_POLL_S = 0.1
 TURN_STOP_LEAD_RAD = 0.25   # measured overshoot after the stop command in the sim
 
 assert REPUBLISH_PERIOD_S < TEXT_COMMANDER_DEADMAN_S / 2

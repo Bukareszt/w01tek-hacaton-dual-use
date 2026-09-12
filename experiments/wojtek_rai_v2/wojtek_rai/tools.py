@@ -84,7 +84,6 @@ class _NavCommandMixin:
 
             pub = self.connector.node.create_publisher(String, limits.NAV_COMMAND_TOPIC, 10)
             object.__setattr__(self, "_nav_pub", pub)
-            time.sleep(0.3)  # let text_commander discover the new publisher
         return pub
 
     def _send(self, command: str) -> None:
@@ -93,15 +92,21 @@ class _NavCommandMixin:
         from std_msgs.msg import String
 
         pub = self._publisher()
-        # text_commander is a PC-side node: the sim launch starts it, the real
-        # bringup does not, and a dropped link takes it away mid-walk. Without
-        # a subscriber the publish goes nowhere; fail loudly instead.
-        if pub.get_subscription_count() == 0:
-            raise ValueError(
-                f"nothing subscribes to {limits.NAV_COMMAND_TOPIC}: text_commander is not "
-                "running (on the real robot start it on the PC: "
-                "ros2 run wojtek_teleop text_commander)"
-            )
+        # text_commander is the only consumer: the sim launch starts it, the
+        # real bringup does not (it is started by hand, on the robot so that
+        # its dead-man survives a WiFi drop). Without a subscriber the publish
+        # goes nowhere; fail loudly instead. Over the AP its subscription is
+        # matched ~2 s after the publisher exists, so look for it for a
+        # bounded time rather than once.
+        deadline = time.monotonic() + limits.SUBSCRIBER_WAIT_S
+        while pub.get_subscription_count() == 0:
+            if time.monotonic() >= deadline:
+                raise ValueError(
+                    f"nothing subscribes to {limits.NAV_COMMAND_TOPIC} after "
+                    f"{limits.SUBSCRIBER_WAIT_S:.0f} s: text_commander is not running "
+                    "(start it: ros2 run wojtek_teleop text_commander, on the robot)"
+                )
+            time.sleep(limits.SUBSCRIBER_POLL_S)
         pub.publish(String(data=command))
 
 

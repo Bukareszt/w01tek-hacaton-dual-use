@@ -162,3 +162,29 @@ def test_read_only_offers_nothing_that_moves(connector):
     assert "get_camera_image" in names
     movers = {"walk", "stop", "stand_up", "lie_down", "turn", "navigate_to_pose", "go_to_object", "go_to_place"}
     assert names.isdisjoint(movers)
+
+
+# --- subscriber discovery over WiFi ------------------------------------------
+
+
+def test_walk_waits_for_text_commander_to_discover_the_publisher(connector):
+    """On the physical robot text_commander's subscription becomes visible
+    ~2 s after the publisher exists (measured over the WiFi AP); the tool must
+    wait for it instead of refusing after a fixed 0.3 s."""
+    pub = connector.node.create_publisher.return_value
+    pub.get_subscription_count.side_effect = [0, 0, 0, 0, 0, 0, 0, 0, 1] + [1] * 100
+
+    out = _walk(connector)._run(direction="forward", seconds=1.0)
+
+    assert "walked forward" in out or "forward" in out
+    assert connector.published[0][2] == {"data": "forward"}
+    assert connector.published[-1][2] == {"data": "stop"}
+
+
+def test_walk_refuses_when_nothing_subscribes_after_the_wait(connector):
+    pub = connector.node.create_publisher.return_value
+    pub.get_subscription_count.return_value = 0
+
+    with pytest.raises(ValueError, match="nothing subscribes"):
+        _walk(connector)._run(direction="forward", seconds=1.0)
+    assert connector.published == []
