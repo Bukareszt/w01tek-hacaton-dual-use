@@ -132,9 +132,15 @@ def _launch_setup(context, with_rviz, hardware):
     )
 
     nodes = [
+        # The 400 Hz control loop. On the RPi the service starts the tree
+        # under taskset -c 2,3 and isolcpus turns load balancing off there,
+        # so where each child lands is chance: measured with the whole
+        # stack on core 2 and core 3 empty. control_cpus pins this one
+        # (the service says 3) and policy_cpus the two below (2).
         Node(
             package="controller_manager",
             executable="ros2_control_node",
+            prefix=_cpu_prefix(context, "control_cpus"),
             parameters=[
                 {"robot_description": robot_description},
                 os.path.join(share, "config", "real_controllers.yaml"),
@@ -183,6 +189,7 @@ def _launch_setup(context, with_rviz, hardware):
         Node(
             package="wojtek_bringup",
             executable="real_io_node",
+            prefix=_cpu_prefix(context, "policy_cpus"),
             output="screen",
             parameters=[
                 {
@@ -194,6 +201,7 @@ def _launch_setup(context, with_rviz, hardware):
         Node(
             package="wojtek_policy",
             executable="policy_node",
+            prefix=_cpu_prefix(context, "policy_cpus"),
             output="screen",
             parameters=[
                 {
@@ -574,6 +582,11 @@ def common_launch_description(
         # the control loop; with the camera node doing the JPEG itself
         # (compressed transport) 30 fps fits, and deck_stream_hz is how
         # many of those the gateway passes on to the panel.
+        # Where the control loop and the policy side run, as taskset
+        # lists; empty = wherever the tree runs. The RPi service pins the
+        # controller to 3 and policy_node + real_io to 2 (see the nodes).
+        DeclareLaunchArgument("control_cpus", default_value=""),
+        DeclareLaunchArgument("policy_cpus", default_value=""),
         DeclareLaunchArgument("deck_camera", default_value="false"),
         DeclareLaunchArgument("deck_camera_profile", default_value="640x480x30"),
         DeclareLaunchArgument("deck_stream_hz", default_value="30.0"),
