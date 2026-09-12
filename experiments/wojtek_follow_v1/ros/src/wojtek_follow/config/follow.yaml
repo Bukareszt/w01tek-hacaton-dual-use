@@ -1,0 +1,169 @@
+# Tower-camera follow settings.
+#
+# `/**` rather than the node's path, so the file keeps working whatever name
+# and namespace the launch gives the node.
+#
+# Every distance is metres, every angle in this file is degrees, and every
+# speed is metres or radians per second. Inside the code the angles are
+# radians; degrees live at this boundary and in the message fields that say
+# deg.
+
+/**:
+  ros__parameters:
+    # --- sign conventions --------------------------------------------------
+    # +1 means a positive pan angle turns the tower to the body's LEFT, and a
+    # positive tilt angle points it UP. Both are ROS right-hand conventions on
+    # a z-up body.
+    #
+    # The values follow from the targeting controller's own driver:
+    # pan_sign = -pan_direction and tilt_sign = -tilt_direction of its
+    # parameters, which default to +1 and -1. The controller adds its optical
+    # error times `direction` to its command, and the driver multiplies the
+    # command by `direction` again on the way to the encoder, so a target to
+    # the right always raises the raw count and `direction` only flips the
+    # sign of the angle it reports. For its own loop to converge, raising the
+    # count must turn the camera right, so a positive reported pan is camera
+    # right when pan_direction is +1. The README has the derivation.
+    #
+    # VERIFY ON THE BENCH BEFORE THE ROBOT WALKS: lock on something, turn the
+    # body by hand, and watch the tower counter-rotate. A wrong sign here
+    # turns the follow into a runaway.
+    pan_sign: -1.0
+    tilt_sign: 1.0
+
+    # --- rates -------------------------------------------------------------
+    # The gimbal node holds its pose when its target is older than 0.20 s, so
+    # the relay has to publish far faster than the Deck does.
+    aim_rate_hz: 40.0
+    # The body loop. The Deck's track arrives at 10 Hz and nothing is gained
+    # by deciding faster than it changes.
+    body_rate_hz: 10.0
+    # How stale the Deck's own detection may be before the target goes out at
+    # zero confidence, which the gimbal node reads as hold. The Deck page
+    # coasts a lock for the same 0.7 s.
+    coast_s: 0.7
+    # The Deck round trip, in seconds: from a tower camera frame to the track
+    # describing it arriving at the gateway. The gyro and gimbal integrals
+    # start this long before the track's stamp. Measure it with a clap test
+    # and set it; 0.15 is the low end of what the plan measured.
+    track_latency_s: 0.15
+    # A gimbal_state older than this is not the gimbal's current angle. The
+    # bearing then uses the pan the track was anchored on, and the node warns.
+    gimbal_max_age_s: 0.5
+    # A depth frame older than this is withheld from the body loop: no
+    # walking and no obstacle bands until a fresh one arrives. Three 15 Hz
+    # periods.
+    depth_max_age_s: 0.5
+    # How long after asking the gimbal to track its own status is believed
+    # over the request. Past this, a DISABLED or FAULT report while a lock is
+    # held makes the next track ask again.
+    tracking_reconcile_s: 1.0
+
+    # --- topics ------------------------------------------------------------
+    # The gateway republishes the Deck's lock here, as JSON in a String.
+    track_topic: /wojtek/track/target
+    # The gimbal's measured angles, in radians.
+    gimbal_state_topic: /targeting/gimbal_state
+    # The gimbal's mode, carried through to the follow status for the Deck.
+    targeting_status_topic: /targeting/status
+    # The tower camera's intrinsics. Without a real focal length there is no
+    # bearing and the node refuses to aim.
+    tower_camera_info_topic: /targeting_camera/targeting_camera/camera_info
+    # The front D435's raw depth: 16UC1 millimetres, 424x240 at 15 Hz.
+    depth_topic: /camera/camera/depth/image_rect_raw
+    # The depth stream's own intrinsics, which are not the colour stream's.
+    depth_camera_info_topic: /camera/camera/depth/camera_info
+    # Body angular rates, x forward, y left, z up.
+    imu_topic: /imu_sensor_broadcaster/imu
+    # What the gimbal node aims at.
+    target_topic: /targeting/target
+    # One drive source for the gateway's DriveGate. NOT /cmd_vel.
+    cmd_vel_topic: /wojtek/follow/cmd_vel
+    # JSON for the Deck and for anyone watching a run.
+    status_topic: /wojtek/follow/status
+    # Turned on when a lock starts and off when it ends.
+    enable_tracking_service: /targeting/enable_tracking
+    # Must match the gimbal node's own joint names.
+    pan_joint_name: targeting_pan_joint
+    tilt_joint_name: targeting_tilt_joint
+
+    # --- where the depth camera is ----------------------------------------
+    # The D435's optical axis relative to the body x axis, positive downward.
+    # Measure it; a guess here tilts the whole obstacle gate.
+    depth_camera_pitch_deg: 0.0
+    # How far the D435 sits above the floor. This is what turns a depth point
+    # into a height, so the floor filter is only as good as this number.
+    depth_camera_height_m: 0.20
+
+    # --- range to the target ----------------------------------------------
+    # The square window sampled around the projected pixel, in pixels.
+    range_window_px: 24
+    # The quantile taken inside that window. Low, because the target is the
+    # near thing in the window and the rest of it is the wall behind.
+    range_percentile: 20.0
+    # The D435 sees nothing closer than about this.
+    range_min_m: 0.3
+    # Past this the depth is too noisy to steer on.
+    range_max_m: 4.0
+    # Beyond this bearing the target is outside the depth camera's view, and
+    # the range falls back to the box width.
+    range_max_azimuth_deg: 35.0
+
+    # --- the obstacle gate -------------------------------------------------
+    # Take every Nth depth pixel in both axes. 4 turns 424x240 into 106x60.
+    gate_decimate: 4
+    # Below this height a point is the floor.
+    gate_min_height_m: 0.06
+    # Above this height the robot walks under it.
+    gate_max_height_m: 0.35
+    # Inside this the D435 is blind and the readings are noise.
+    gate_min_range_m: 0.3
+    # Past this an obstacle is not this tick's problem.
+    gate_max_range_m: 3.0
+    # The half-width of the centre band. Outside it a point is left or right.
+    gate_side_azimuth_deg: 15.0
+    # The cone around the target that is not treated as an obstacle, because
+    # the target is one by every other measure.
+    gate_cone_azimuth_deg: 10.0
+    # How far past the target's own range that cone reaches.
+    gate_cone_margin_m: 0.3
+
+    # --- turning -----------------------------------------------------------
+    # Yaw rate per radian of azimuth error.
+    yaw_gain: 1.5
+    # Inside this the robot does not turn at all. It covers gimbal backlash.
+    yaw_deadband_deg: 2.0
+    # The yaw rate limit, in rad/s.
+    yaw_max: 0.7
+    # Past this azimuth the robot turns in place and does not walk.
+    align_threshold_deg: 30.0
+
+    # --- distance keeping --------------------------------------------------
+    # How far the robot stands off the target.
+    hold_distance_m: 1.0
+    # Half the width of the band around it where the robot just stands. Once
+    # inside, the band doubles, which is what stops it shuffling.
+    hold_hysteresis_m: 0.15
+    # Forward speed per metre of range error.
+    forward_gain: 0.8
+    # Forward speed limit, in m/s.
+    vx_max: 0.4
+    # Reverse limit. Small, because the robot cannot see behind itself.
+    vx_min_reverse: -0.2
+    # The gait clock freezes below about 0.05 m/s, so anything under this is
+    # sent as a clean zero rather than as a crawl.
+    min_speed: 0.12
+
+    # --- obstacles ---------------------------------------------------------
+    # Inside this, no forward motion at all.
+    stop_range_m: 0.5
+    # Between stop and slow the forward speed is scaled down linearly.
+    slow_range_m: 1.0
+    # Sideways speed used to step around a blockage, in m/s.
+    sidestep: 0.25
+
+    # --- losing the target -------------------------------------------------
+    # After this long without a fresh detection the body stops.
+    hold_after_loss_s: 1.0
+    # After this long the lock is dropped and the gimbal is told to stop.
+    drop_after_loss_s: 3.0
