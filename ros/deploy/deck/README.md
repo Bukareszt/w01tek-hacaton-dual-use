@@ -197,6 +197,28 @@ where the gateway looks when it is started by the service without an
 `~/deck_assets` with a symlink at `~/wojtek_ws/deck_assets`; either
 works.) Now step 5 above works, and a reboot keeps all three.
 
+**4. Give the camera node its JPEG plugin.** The gateway streams the
+camera node's own compressed frames (`compressed_image_transport`,
+encoding in C++, only while the gateway subscribes), so it receives 40 KB
+a frame instead of a 0.9 MB raw image and encodes nothing. That is what
+makes 30 fps fit the Pi. The robot has no route to the package server, so
+the `.deb` comes over from the PC; its dependencies are already on the
+robot.
+
+```bash
+# On the PC. The pool keeps only the current build: list it, take the
+# arm64 file it shows, do not trust an older version string.
+curl -s http://packages.ros.org/ros2/ubuntu/pool/main/r/ros-jazzy-compressed-image-transport/ \
+  | grep -oE 'ros-jazzy-compressed-image-transport_[^"]+_arm64\.deb' | sort -u | tail -1
+curl -s -o cit.deb "http://packages.ros.org/ros2/ubuntu/pool/main/r/ros-jazzy-compressed-image-transport/<that file>"
+scp cit.deb rpi@10.42.0.2:/tmp/
+ssh rpi@10.42.0.2 'sudo dpkg -i /tmp/cit.deb'
+```
+
+Without the plugin the gateway still works from the raw image: start it
+with `compressed:=false` (and expect the camera at 15 fps to be the
+limit; the raw path costs a third of a core in the gateway alone).
+
 ## Read the top band
 
 | lamp | lit when |

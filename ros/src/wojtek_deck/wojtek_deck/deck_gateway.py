@@ -66,7 +66,7 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
-from sensor_msgs.msg import Image, JointState
+from sensor_msgs.msg import CompressedImage, Image, JointState
 from std_srvs.srv import SetBool, Trigger
 
 from wojtek_policy.policy_source import load_meta
@@ -158,6 +158,13 @@ class GatewayNode(Node):
         # Encoding is the gateway's whole CPU bill, and on the RPi that
         # bill is paid by the same four cores as the control loop.
         self.declare_parameter("stream_hz", 10.0)
+        # Take the camera node's own JPEG (image_transport's compressed
+        # plugin, <color_topic>/compressed) instead of the raw image. The
+        # camera node encodes in C++ and only while somebody subscribes;
+        # the gateway then receives ~40 KB a frame instead of 0.9 MB and
+        # encodes nothing. false = the raw image and the encoder below,
+        # for a robot without the plugin.
+        self.declare_parameter("compressed", True)
         # Where the detector's files are. Empty means "work it out", which
         # is right everywhere except a container that named it differently.
         self.declare_parameter("assets_dir", "")
@@ -240,15 +247,45 @@ class GatewayNode(Node):
         if wanted and self._color_sub is None:
             # The camera publishes best-effort; a default-QoS subscription
             # would match nothing, so mirror the sensor-data profile.
-            self._color_sub = self.create_subscription(
-                Image, self.get_parameter("color_topic").value,
-                self._on_color, qos_profile_sensor_data)
-            self.get_logger().info("camera: viewer arrived, subscribing")
+            topic = self.get_parameter("color_topic").value
+            if self.get_parameter("compressed").value:
+                self._color_sub = self.create_subscription(
+                    CompressedImage, topic + "/compressed",
+                    self._on_compressed, qos_profile_sensor_data)
+                self.get_logger().info(
+                    "camera: viewer arrived, subscribing (compressed)")
+            else:
+                self._color_sub = self.create_subscription(
+                    Image, topic, self._on_color, qos_profile_sensor_data)
+                self.get_logger().info("camera: viewer arrived, subscribing")
         elif not wanted and self._color_sub is not None:
             self.destroy_subscription(self._color_sub)
             self._color_sub = None
             self._frame_stamps = []
             self.get_logger().info("camera: last viewer gone, unsubscribed")
+
+    def _on_compressed(self, msg):
+        """A JPEG from the camera node: pass it through, nothing to encode."""
+        self.frames_seen += 1
+        if self.on_frame is None or not self.want_frames():
+            return
+        if "jpeg" not in msg.format.lower():
+            self.get_logger().warning(
+                f"compressed camera format {msg.format!r} is not JPEG; set "
+                "the camera's compressed format to jpeg", once=True)
+            return
+        now = time.monotonic()
+        if now - self._last_encode < self._stream_period:
+            return
+        self._last_encode = now
+        self._frame_stamps = [t for t in self._frame_stamps if now - t < 2.0]
+        self._frame_stamps.append(now)
+        self.frames_encoded += 1
+        if self.frames_encoded == 1:
+            self.get_logger().info(
+                f"camera: first frame passed through ({len(msg.data) // 1024} "
+                f"KB JPEG from the camera node)")
+        self.on_frame(bytes(msg.data))
 
     def _on_color(self, msg):
         self.frames_seen += 1

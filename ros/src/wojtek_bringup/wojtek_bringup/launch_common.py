@@ -305,6 +305,10 @@ def _launch_setup(context, with_rviz, hardware):
                     "stack_unit": (
                         "wojtek-robot.service" if hardware == "real" else ""
                     ),
+                    # Frames a second the gateway passes on to the panel.
+                    "stream_hz": ParameterValue(
+                        LaunchConfiguration("deck_stream_hz"), value_type=float
+                    ),
                 }
             ],
         )
@@ -341,6 +345,13 @@ def _launch_setup(context, with_rviz, hardware):
                         "align_depth.enable": False,
                         "enable_rgbd": False,
                         "enable_sync": False,
+                        # The compressed transport plugin encodes the JPEG
+                        # the gateway streams, in C++ and only while the
+                        # gateway subscribes. This is the plugin's quality
+                        # parameter as the node declares it (the leading
+                        # dot is image_transport's naming); 95, its
+                        # default, made 120 KB frames, 80 makes 40 KB.
+                        ".camera.color.image_raw.compressed.jpeg_quality": 80,
                     }
                 ],
             )
@@ -553,10 +564,13 @@ def common_launch_description(
         DeclareLaunchArgument("deck_port", default_value="8090"),
         DeclareLaunchArgument("deck_cpus", default_value=""),
         # The panel's colour camera, robot only (deck_camera:=true in the
-        # service). Profile WxHxFPS; 640x480x15 is what the Pi affords next
-        # to the control loop.
+        # service). Profile WxHxFPS. 640x480 is what the Pi affords next to
+        # the control loop; with the camera node doing the JPEG itself
+        # (compressed transport) 30 fps fits, and deck_stream_hz is how
+        # many of those the gateway passes on to the panel.
         DeclareLaunchArgument("deck_camera", default_value="false"),
-        DeclareLaunchArgument("deck_camera_profile", default_value="640x480x15"),
+        DeclareLaunchArgument("deck_camera_profile", default_value="640x480x30"),
+        DeclareLaunchArgument("deck_stream_hz", default_value="30.0"),
         OpaqueFunction(
             function=_launch_setup,
             kwargs={"with_rviz": with_rviz, "hardware": hardware},
