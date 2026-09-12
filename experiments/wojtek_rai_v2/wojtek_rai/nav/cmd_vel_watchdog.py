@@ -2,8 +2,10 @@
 
 Republishes `/cmd_vel_nav` (Twist) as `/cmd_vel`; when no message arrives for
 `timeout_s`, publishes one zero Twist and goes quiet until Nav2 speaks again.
-`policy_node` holds its last command forever, so without this a crashed or
-paused Nav2 would leave the robot walking.
+`policy_node` holds its last command until the next one arrives (its own
+`cmd_vel_timeout_s` dead-man is off unless the robot is launched with
+`cmd_vel_timeout_s:=0.5`), so without this a crashed or paused Nav2 would
+leave the robot walking.
 
 What this node can and cannot cover:
 
@@ -20,8 +22,10 @@ What this node can and cannot cover:
   Twists for `STOP_BURST_S` at the tick rate so the re-matched reader gets a
   stop. The burst is gated by `stop_burst_on_reconnect` (default off; the
   real-target launch enables it) because it fights the pad -- twist_mux with
-  pad priority must be in place before it is enabled on the real robot. A
-  cmd_vel age timeout inside policy_node (a ros/ change) is the real fix.
+  pad priority must be in place before it is enabled on the real robot.
+  The real fix is policy_node's own cmd_vel_timeout_s: launch the robot
+  with cmd_vel_timeout_s:=0.5 and a dead link zeroes the velocity on the
+  robot itself, with this node left as the Nav2-side belt-and-braces.
 
     ros2 run --prefix '' python3 -m wojtek_rai.nav.cmd_vel_watchdog
 """

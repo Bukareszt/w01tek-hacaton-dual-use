@@ -30,7 +30,7 @@ potrzebny jest `hw:=mujoco`.
 | 8 | Odmowa: `lie_down` gdy ARMED | `success=False`, „armed" | mock |
 | 9 | Odmowa: `arm` przy skoku > `max_arm_jump_rad` | `success=False` (ustaw pozę daleko od home i spróbuj) | mujoco |
 | 10 | `disarm` → `lie_down` | rampa do folded, komendy przestają się odświeżać | mock |
-| 11 | Watchdog `policy_node` | po ucięciu `/joint_states` polityka wstrzymuje publikację w `watchdog_timeout_s`; po ucięciu `/cmd_vel` staje w miejscu w `cmd_vel_timeout_s` | mock |
+| 11 | Watchdog `policy_node` | po ucięciu `/joint_states` polityka wstrzymuje publikację w `watchdog_timeout_s`; po ucięciu `/cmd_vel` staje w miejscu w `cmd_vel_timeout_s` (tylko z `cmd_vel_timeout_s:=0.5`; domyślnie `0` = trzyma ostatnią komendę) | mock |
 | 12 | `dry_run:=true` | stany lecą, moment nie jest aplikowany | mujoco |
 | 13 | Rate'y | `/joint_states` i `/imu_sensor_broadcaster/imu` na oczekiwanej częstotliwości (patrz uwaga niżej) | mock |
 | 14 | Bag | `bag:=true` tworzy `bag_dir/run_<stamp>` i nagrywa | mock |

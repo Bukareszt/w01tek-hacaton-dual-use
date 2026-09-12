@@ -18,8 +18,9 @@ shouted over.
     LIVE and returns the scaled command.
   * Once `timeout_s` passes with the sticks centred or the joy stream gone,
     the gate ZEROES the motion for `silence_after_s` -- the burst that
-    overwrites the command policy_node latched -- and then goes IDLE and
-    returns None.
+    overwrites the command policy_node latched (its own cmd_vel_timeout_s
+    is off by default; when on it only backstops this burst) -- and then
+    goes IDLE and returns None.
   * A height step counts as input: the new set-point has to reach the
     policy even with the sticks centred, so it opens a zeroing burst that
     carries it.

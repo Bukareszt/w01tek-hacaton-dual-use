@@ -44,9 +44,11 @@ no `nav_msgs/Odometry`. All Jazzy packages are in apt (verified):
   sim render, 15 Hz) + `camera_info`; colour 5–6 Hz. `cloud_reduce` makes a
   coarse point cloud for the deck panel. Horizontal FOV ≈ 87°.
 - Velocity: policy box vx −0.8..1.2, vy ±0.5, wz ±1.0 (rad/s), height in
-  `Twist.linear.z` (0 = keep). `policy_node` clamps and **holds the last
-  command; no dead-man**. `text_commander` adds a 2 s dead-man for text
-  commands only.
+  `Twist.linear.z` (0 = keep). `policy_node` clamps and, by default,
+  **holds the last command**; its own dead-man (`cmd_vel_timeout_s`, off
+  unless the robot is launched with `cmd_vel_timeout_s:=0.5`) zeroes the
+  velocity once `/cmd_vel` goes stale. `text_commander` adds a 2 s dead-man
+  for text commands only.
 - Compute: RPi runs control (400 Hz) + policy (50 Hz) + camera driver;
   everything else runs on the PC container. The PC image has no nav
   packages.
@@ -92,8 +94,10 @@ Design decisions:
   not step cleanly). MPPI later if RPP hunts on a legged base.
 - **A `cmd_vel_watchdog` node** sits between Nav2 and the robot: republishes
   `/cmd_vel_nav` as `/cmd_vel`, zeroes it 0.5 s after the last message.
-  `policy_node` has no dead-man of its own; this is the safety piece that
-  makes Nav2 acceptable on the real robot.
+  It stops the robot when Nav2 dies on the PC. It cannot reach the robot
+  when the link dies, which is what `policy_node`'s own `cmd_vel_timeout_s`
+  is for: a nav session launches the robot with `cmd_vel_timeout_s:=0.5`,
+  and the watchdog stays as the Nav2-side belt-and-braces.
 - **Height stays untouched**: Nav2 sends `linear.z = 0`, which the policy
   reads as "keep the contract height".
 - **Goals come from three sources**, in this order of arrival: explicit
@@ -178,7 +182,7 @@ Design decisions:
 |---|---|
 | Narrow depth FOV: costmap blind to the sides while turning | `spin` before long plans, observation persistence 5 s, conservative inflation; later STVL from the point cloud |
 | Gait vs. controller: policy does not walk cleanly below ~0.15 m/s or with rapid sign flips | RPP with `min_vel_x`, `max_angular_accel` low, `use_rotate_to_heading` on; measure tracking error in sim before touching MPPI |
-| No dead-man in `policy_node` | `cmd_vel_watchdog` in the loop from N1 on; never bypass it on the real robot |
+| `policy_node` holds the last `/cmd_vel` by default (`cmd_vel_timeout_s` is 0 unless asked for) | launch the robot with `cmd_vel_timeout_s:=0.5` for every nav session (the policy-side dead-man is the backstop for a dead link); `cmd_vel_watchdog` stays in the loop as the Nav2-side guard |
 | Real odometry (visual) drifts or loses track on a plain floor | EKF fallback with leg odometry; SLAM loop closure; accept mapping-only for the first session |
 | WiFi bandwidth for depth + colour | depth 424×240 raw (3 MB/s) fine; colour compressed and downscaled |
 | Nav2 and the sim both on the laptop CPU (MuJoCo + rendering) | RTF is 1.0 today; if it drops, lower camera rates first |

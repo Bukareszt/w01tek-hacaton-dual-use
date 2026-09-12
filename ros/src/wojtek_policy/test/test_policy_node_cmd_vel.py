@@ -1,15 +1,19 @@
-"""The /cmd_vel dead-man in policy_node: a dead publisher must not keep
-Wojtek walking.
+"""The /cmd_vel dead-man in policy_node: with cmd_vel_timeout_s on, a dead
+publisher must not keep Wojtek walking.
 
-Every drive source (pad, deck gateway, consoles, text commander) streams at
-20 Hz and zeroes before it goes quiet, so the only way the node sees a gap
-is that the source died mid-drive -- a crashed Nav2, a dropped link, a
-closed tab. Then the command has to decay instead of latching.
+The robot-side drive sources (pad, deck gateway, consoles, text commander)
+stream at 20 Hz and zero before they go quiet, so with the timeout on the
+only way the node sees a gap is that the source died mid-drive -- a crashed
+Nav2, a dropped link, a closed tab. Then the command has to decay instead
+of latching. Off (the default, because teleop_twist_keyboard and the
+Foxglove Teleop panel publish per keypress) the node latches as it always
+did.
 
 The real node on a fake clock: Twists go straight into the callback, time
 is moved by hand, and the command the policy would be stepped with is read
-back. Needs rclpy (skipped on a host without ROS); run in the dev
-container:
+back. The fake clock means the ROS-time (use_sim_time) path is not what is
+exercised here; only that the node asks its clock, whichever it is. Needs
+rclpy (skipped on a host without ROS); run in the dev container:
 
     pytest ros/src/wojtek_policy/test/test_policy_node_cmd_vel.py
 """
@@ -127,6 +131,58 @@ def test_zero_timeout_latches_forever(node):
     drive(node, vx=0.3, yaw=0.2)
     node.clock.t += 3600.0
     assert np.allclose(node._command(), [0.3, 0.0, 0.2, HEIGHT_DEFAULT])
+
+
+def test_the_default_is_off():
+    """A node nobody configured latches: teleop_twist_keyboard publishes
+    one Twist per keypress and would otherwise turn into a pulse per key.
+    The nav stack opts in with cmd_vel_timeout_s:=0.5."""
+    from wojtek_policy.policy_node import PolicyNode
+
+    n = PolicyNode()
+    try:
+        assert n.get_parameter("cmd_vel_timeout_s").value == 0.0
+        n.clock = FakeClock()
+        n.get_clock = lambda: n.clock
+        drive(n, vx=0.3)
+        n.clock.t += 3600.0
+        assert np.allclose(n._command(), [0.3, 0.0, 0.0, HEIGHT_DEFAULT])
+    finally:
+        n.destroy_node()
+
+
+def test_a_dead_driver_is_logged_once_per_episode(node):
+    """One warning per stale episode, and only when the robot was moving:
+    the gates zero before they go quiet, so a stick release must not fill
+    the journal at the tick rate."""
+    warnings = []
+
+    class Spy:
+        def warning(self, msg, *a, **k):
+            warnings.append(msg)
+
+    node.get_logger = lambda: Spy()
+
+    drive(node, vx=0.3)
+    node.clock.t += TIMEOUT * 1.1
+    for _ in range(5):
+        node._command()
+    assert len(warnings) == 1
+
+    # The stream comes back and dies again: a second episode, a second line.
+    drive(node, vx=0.3)
+    node._command()
+    node.clock.t += TIMEOUT * 1.1
+    for _ in range(5):
+        node._command()
+    assert len(warnings) == 2
+
+    # A driver that zeroed before going quiet is the normal case: silent.
+    drive(node, vx=0.0)
+    node._command()
+    node.clock.t += TIMEOUT * 1.1
+    node._command()
+    assert len(warnings) == 2
 
 
 def test_no_command_at_all_is_no_motion(node):

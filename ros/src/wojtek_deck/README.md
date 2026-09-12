@@ -17,8 +17,10 @@ Three links, three jobs:
   in the gateway, on the robot: sticks arrive as normalized frames, and when
   they stop for 0.5 s the gateway zeroes `/cmd_vel` for two seconds and then
   goes silent. This is the point of having a robot-side process at all.
-  `policy_node` latches the last command it saw, so a dead-man on the far
-  side of a wifi link would protect nothing.
+  `policy_node` latches the last command it saw unless it was launched
+  with `cmd_vel_timeout_s` (off by default), so a dead-man on the far side
+  of a wifi link would protect nothing; even with that timeout on, the
+  gateway's burst is the fast path and hands `/cmd_vel` over cleanly.
 - **Camera** is the gateway's MJPEG stream (`/stream.mjpg`), shown in a plain
   `<img>`. The detector reads its frames out of that same image rather than
   opening a second stream, so detection costs the wifi nothing.

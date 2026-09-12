@@ -14,7 +14,8 @@ Speeds are parameters (`v_forward`, `w_turn`), and a dead-man stops the
 robot `command_timeout` seconds after the last command: the VLM must keep
 talking to keep Wojtek walking. On stop/timeout the node publishes exactly
 ONE zero Twist and then goes silent -- the zero is mandatory because
-policy_node latches the last received command forever, and the silence lets
+policy_node latches the last received command (its own cmd_vel_timeout_s
+is off unless the launch asks for it), and the silence lets
 another drive source (web console, gamepad) take /cmd_vel without being
 fought. linear.z stays 0.0 = "use the default height" for policy_node;
 height is the operator consoles' business, not the VLM's.

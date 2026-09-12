@@ -7,9 +7,10 @@ parameters differ:
               /imu_sensor_broadcaster/imu (sensor_msgs/Imu)
               /cmd_vel       (geometry_msgs/Twist; linear.x/y + angular.z are
                               vx/vy/wz, linear.z > 0 commands the standing
-                              height for 4-D-command policies. A stream, not
-                              a set-point: nothing newer than
-                              cmd_vel_timeout_s and the robot stands)
+                              height for 4-D-command policies. Latched by
+                              default; with cmd_vel_timeout_s > 0 it is a
+                              stream: nothing newer than that and the
+                              robot stands)
   publishes   /wojtek/joint_targets (sensor_msgs/JointState, URDF convention,
                                   absolute; 12 actuated joints. For a policy
                                   whose contract enables the tau_ff head the
@@ -74,15 +75,21 @@ class PolicyNode(Node):
         self.declare_parameter("auto_enable", True)
         self.declare_parameter("soft_start_s", 1.0)
         self.declare_parameter("watchdog_timeout_s", 0.2)
-        # How long a /cmd_vel survives its publisher. Every drive source on
-        # the robot streams at 20 Hz while it drives and sends zeros before
-        # it goes quiet, so a longer gap than this means the source died
-        # mid-drive (crashed node, dropped link, closed tab) -- and a latched
-        # command would keep Wojtek walking away. The velocity then decays to
-        # zero: stand in place. 0 disables the timeout (latch forever, which
-        # is what this node did before). Note this is NOT watchdog_timeout_s:
-        # that one guards the SENSOR streams and holds the targets entirely.
-        self.declare_parameter("cmd_vel_timeout_s", 0.5)
+        # How long a /cmd_vel survives its publisher. Once the newest one is
+        # older than this the velocity decays to zero: stand in place, do
+        # not walk away on a command whose sender died mid-drive (crashed
+        # Nav2, dropped link, closed tab). 0 = off, the command is latched
+        # until the next one, which is what this node always did. Off by
+        # default because not every teleop streams: teleop_twist_keyboard
+        # publishes one Twist per keypress and the Foxglove Teleop panel at
+        # its own setting, and both rely on the latch. The robot-side gates
+        # (pad, deck, consoles, text_commander) stream at 20 Hz while they
+        # drive and zero before going quiet, so they work either way; a
+        # nav stack driving /cmd_vel turns this on (0.5 s) because nothing
+        # else can catch its publisher dying. Note this is NOT
+        # watchdog_timeout_s: that one guards the SENSOR streams and holds
+        # the targets entirely.
+        self.declare_parameter("cmd_vel_timeout_s", 0.0)
         # Report the cost of each tick on /wojtek/policy_timing. Off unless a
         # run asks for it, so a plain run publishes nothing extra.
         self.declare_parameter("publish_timing", False)
@@ -270,9 +277,10 @@ class PolicyNode(Node):
                 self._cmd_stale = False
                 return self._cmd
             if not self._cmd_stale and np.any(self._cmd[:3] != 0.0):
-                # Once per stale episode: the gates zero before they go
-                # quiet, so this only ever fires when a publisher died while
-                # driving -- exactly the thing worth seeing in the log.
+                # Once per stale episode, and only when the robot was
+                # moving: the gates zero before they go quiet, so this fires
+                # when a publisher died while driving -- exactly the thing
+                # worth seeing in the log.
                 self.get_logger().warning(
                     f"no /cmd_vel for {age:.2f} s -- standing in place"
                 )

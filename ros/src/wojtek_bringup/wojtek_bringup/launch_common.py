@@ -220,12 +220,12 @@ def _launch_setup(context, with_rviz, hardware):
                     "soft_start_s": 2.0,
                     "clamp_knee": True,
                     "watchdog_timeout_s": 0.2,
-                    # Every drive source publishes at 20 Hz while it
-                    # drives and zeroes before going quiet, so half a
-                    # second of silence means the source is gone, not
-                    # that it meant to hold: the robot stands instead
-                    # of walking on the last command it heard.
-                    "cmd_vel_timeout_s": 0.5,
+                    # The /cmd_vel dead-man; off unless the launch asks
+                    # for it (see the argument below).
+                    "cmd_vel_timeout_s": ParameterValue(
+                        LaunchConfiguration("cmd_vel_timeout_s"),
+                        value_type=float,
+                    ),
                     # Same switch as the sysinfo node above, so one argument
                     # turns both topics on together.
                     "publish_timing": ParameterValue(
@@ -439,6 +439,17 @@ def common_launch_description(
         # so the policy runs without gravity/gyro -- bench use only.
         DeclareLaunchArgument("use_imu", default_value="true"),
         DeclareLaunchArgument("dry_run", default_value="false"),
+        # policy_node's /cmd_vel dead-man: with a value > 0 a command older
+        # than that many seconds zeroes the velocity (the robot stands in
+        # place instead of walking on the last command it heard). Off (0)
+        # by default: teleop_twist_keyboard and the Foxglove Teleop panel
+        # publish per keypress / at their own rate and rely on the latch,
+        # so a manual session keeps the old behaviour. The robot-side gates
+        # (pad, deck, consoles, text_commander) stream at 20 Hz and zero
+        # before going quiet, so they drive the same either way. A nav
+        # stack on /cmd_vel runs the robot with cmd_vel_timeout_s:=0.5 --
+        # nothing else catches its publisher dying mid-stride.
+        DeclareLaunchArgument("cmd_vel_timeout_s", default_value="0.0"),
         # Pose the robot is in when the motors activate / zero. "home"
         # (standing, position 0) by default; "folded" only if the drives' raw
         # zero matches the folded pose -- see real_io_node.
