@@ -134,13 +134,19 @@ class WalkTool(_NavCommandMixin, BaseROS2Tool):
     def _run(self, direction: str, seconds: float) -> str:
         d, s = limits.validate_walk(direction, seconds)
         deadline = time.monotonic() + s
-        while True:
-            self._send(d)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(limits.REPUBLISH_PERIOD_S, remaining))
-        self._send(limits.STOP_COMMAND)
+        # The stop is sent whatever ends the loop -- including _send raising
+        # mid-walk (text_commander's subscription lost over the WiFi AP);
+        # otherwise the robot would keep walking until the 2 s dead-man fires.
+        # Same shape as TurnTool.
+        try:
+            while True:
+                self._send(d)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(limits.REPUBLISH_PERIOD_S, remaining))
+        finally:
+            self._send(limits.STOP_COMMAND)
         return f"Walked {d} for {s:.1f} s; the robot is now stopped."
 
 
@@ -214,12 +220,35 @@ class TurnTool(_NavCommandMixin, BaseROS2Tool):
         return f"Turned {final:+.0f} degrees (target {target:+.0f}); the robot is now stopped."
 
 
+def _cancel_nav_goal() -> bool:
+    """Cancel the Nav2 goal in flight, if any. False where the Nav2 tools are
+    not part of this build at all (WOJTEK_RAI_ODOMETRY=0, the physical robot):
+    `stop` must stay available there, so the import is done here and its
+    failure is not an error."""
+    try:
+        from wojtek_rai.nav_tools import cancel_active_nav_goal
+    except Exception:  # noqa: BLE001 -- no Nav2 tools on this target
+        return False
+    return cancel_active_nav_goal()
+
+
 class StopTool(_NavCommandMixin, BaseROS2Tool):
     name: str = "stop"
-    description: str = "Stop the robot immediately."
+    description: str = (
+        "Stop the robot immediately: cancels the navigation goal in progress, if any, "
+        "and stops a walk."
+    )
 
     def _run(self) -> str:
+        # Nav2 streams /cmd_vel_nav at 20 Hz through the watchdog, and
+        # text_commander's zero Twist is overwritten within 50 ms. So the goal
+        # has to go first; the text stop is what ends a `walk`. Cancelling
+        # before publishing also means a raising _send (no text_commander)
+        # still leaves navigation cancelled.
+        cancelled = _cancel_nav_goal()
         self._send(limits.STOP_COMMAND)
+        if cancelled:
+            return "Navigation goal cancelled; stop command sent."
         return "Stop command sent."
 
 
