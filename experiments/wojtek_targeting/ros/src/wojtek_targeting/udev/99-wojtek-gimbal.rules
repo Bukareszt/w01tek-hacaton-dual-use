@@ -1,0 +1,24 @@
+# Stable name for the U2D2 that drives the targeting gimbal.
+#
+# /dev/ttyUSB0 is whichever FTDI device enumerated first, and with cameras and
+# possibly a second adapter on the same Pi that is not reliably this one. The
+# controller takes an exclusive lock on whatever it opens, so guessing wrong
+# does not corrupt the bus -- it just fails, at the least convenient moment.
+#
+# Install:
+#   sudo cp 99-wojtek-gimbal.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   ls -l /dev/wojtek_gimbal
+#
+# The U2D2 is an FTDI FT232H (0403:6014). If more than one FTDI device is
+# attached this rule matches all of them, so pin it to the adapter's own
+# serial number instead -- read it with:
+#   udevadm info -a -n /dev/ttyUSB0 | grep '{serial}'
+# then uncomment the ATTRS{serial} clause below and fill it in.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", \
+  SYMLINK+="wojtek_gimbal", MODE="0660", GROUP="dialout"
+
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", \
+#   ATTRS{serial}=="REPLACE_WITH_ADAPTER_SERIAL", \
+#   SYMLINK+="wojtek_gimbal", MODE="0660", GROUP="dialout"

@@ -1,0 +1,100 @@
+# Targeting gimbal settings.
+#
+# `/**` rather than the node's path so the file keeps working whatever
+# name/namespace the launch gives the node.
+#
+# EVERY ANGLE LIMIT IN HERE IS A GUESS until someone measures the assembled
+# gimbal. They are deliberately narrower than the servos can reach: a limit
+# that is too tight wastes travel, a limit that is too loose drives the camera
+# mount into the robot. Widen them from CAD and a bench check, in that order.
+
+/**:
+  ros__parameters:
+    # The U2D2. /dev/ttyUSB0 is whatever enumerated first, which with the
+    # cameras also on the bus is not reliably this adapter -- install
+    # udev/99-wojtek-gimbal.rules and use the alias instead.
+    device: /dev/wojtek_gimbal
+    # Must match what the servos are actually configured for. 57600 is the
+    # ROBOTIS factory default; if these motors came from another project they
+    # are probably at 1000000. Check with Dynamixel Wizard, do not guess --
+    # a wrong rate looks exactly like a dead bus.
+    baud_rate: 57600
+
+    pan_motor_id: 1
+    tilt_motor_id: 2
+
+    # Control at 40 Hz, state read at 20 Hz. The state read is decimated
+    # against the control rate rather than run on its own timer, so there is
+    # only ever one thing talking to the bus.
+    update_rate_hz: 40.0
+    state_rate_hz: 20.0
+
+    # --- what counts as a target worth moving for --------------------------
+    confidence_threshold: 0.65
+    # A detection older than this is ignored and the gimbal holds. This is the
+    # dead-man: if the detector dies mid-track, the gimbal stops within 200 ms
+    # rather than continuing to aim at a stale box.
+    target_timeout_s: 0.20
+    lock_tolerance_deg: 1.0
+    lock_dwell_s: 0.30
+    # Fraction of the angular error commanded per tick. Below 1.0 because the
+    # detection is already a frame or two old by the time it arrives -- at 1.0
+    # the gimbal chases where the target was and overshoots. Raise it if
+    # tracking feels sluggish, lower it if the aim oscillates.
+    tracking_gain: 0.6
+
+    # --- travel ------------------------------------------------------------
+    # Encoder count at each joint's zero. 2048 is the middle of the range and
+    # is almost certainly wrong once the gimbal is assembled: point it where
+    # you want zero to be, read /targeting/gimbal_state, and correct these.
+    pan_center_raw: 2048
+    tilt_center_raw: 2048
+    # +1 or -1: which way the servo turns for a positive angle. tilt defaults
+    # to -1 because image rows run downward while tilt-up is positive, so the
+    # two conventions are opposite more often than not. Verify on the bench
+    # with set_manual_angles before enabling tracking.
+    pan_direction: 1
+    tilt_direction: -1
+
+    pan_min_deg: -80.0
+    pan_max_deg: 80.0
+    tilt_min_deg: -35.0
+    tilt_max_deg: 45.0
+
+    pan_home_deg: 0.0
+    tilt_home_deg: 0.0
+    # False: disabling tracking leaves the gimbal where it is. True sends it
+    # home instead, which is the safer demo behaviour but does move the robot
+    # in response to a service call.
+    home_on_disable: false
+
+    # Also written to the servos as their motion profile, so the hardware
+    # enforces them even if a command gets through that should not have.
+    max_pan_velocity_deg_s: 45.0
+    max_tilt_velocity_deg_s: 35.0
+    pan_profile_acceleration_deg_s2: 180.0
+    tilt_profile_acceleration_deg_s2: 180.0
+
+    # Calibration result, applied on top of the tracking solution. This is
+    # where the camera-to-laser parallax ends up: centre a target in the image
+    # at the distance the demo is shot from, then trim these until the laser
+    # lands on it.
+    pan_offset_deg: 0.0
+    tilt_offset_deg: 0.0
+
+    # --- servo position loop ----------------------------------------------
+    # RAM registers, so the servo forgets them on every power cycle and the
+    # driver rewrites them on every connect. 800/0/0 is the ROBOTIS default;
+    # pure P leaves a standing error wherever the P term balances friction, so
+    # expect to add some I once there is a real load on the axes.
+    pan_p_gain: 800
+    pan_i_gain: 0
+    pan_d_gain: 0
+    tilt_p_gain: 800
+    tilt_i_gain: 0
+    tilt_d_gain: 0
+
+    # Names used in /targeting/gimbal_state. Match the URDF once it exists, or
+    # RViz will not associate the state with the model.
+    pan_joint_name: targeting_pan_joint
+    tilt_joint_name: targeting_tilt_joint
