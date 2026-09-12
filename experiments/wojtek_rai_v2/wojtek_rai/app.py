@@ -19,6 +19,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from rai.communication.ros2 import ROS2Connector
 
 from wojtek_rai.agent import READ_ONLY, build_agent
+from wojtek_rai.arm_switch import set_armed
 from wojtek_rai.camera_feed import start_camera_feed
 from wojtek_rai.stream import TurnEvents, run_turn, text_of
 
@@ -122,10 +123,38 @@ class _Live:
         self.text_box.markdown(final_text if final_text else "")
 
 
+def _robot_panel() -> None:
+    """The operator's arm switch: the policy drives the motors only while
+    armed. Not an LLM tool (see wojtek_rai/arm_switch.py); the robot's own
+    checks (standing in the home pose) decide, and its answer is shown."""
+    st.subheader("Robot")
+    want = st.toggle(
+        "armed (policy drives the motors)",
+        value=st.session_state.get("armed", False),
+        key="arm_toggle",
+        help="Calls /wojtek/arm. Refused unless the robot stands in the home pose (say 'stand up' first).",
+    )
+    if want != st.session_state.get("armed", False):
+        ok, msg = set_armed(get_camera_feed().node, want)
+        if ok:
+            st.session_state["armed"] = want
+        st.session_state["arm_msg"] = ("ok" if ok else "err", msg)
+        if not ok:
+            # The switch snaps back to the robot's real state on the rerun.
+            st.session_state["arm_toggle"] = st.session_state.get("armed", False)
+            st.rerun()
+    kind, msg = st.session_state.get("arm_msg", ("ok", ""))
+    if msg:
+        (st.success if kind == "ok" else st.error)(msg)
+    if st.session_state.get("armed", False):
+        st.warning("ARMED: walk commands move the robot. Hand on power.")
+
+
 def main() -> None:
     st.title("Wojtek x RAI" + (" (read-only)" if READ_ONLY else ""))
     graph = get_graph()
     with st.sidebar:
+        _robot_panel()
         st.subheader("Camera")
         # A stream is subscribed only while its toggle is on: over WiFi every
         # reader costs bandwidth, so the feed subscribes nothing on its own.
