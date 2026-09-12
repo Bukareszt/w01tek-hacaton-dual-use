@@ -64,9 +64,19 @@ from std_srvs.srv import SetBool, Trigger
 from wojtek_policy.policy_source import load_meta
 from wojtek_deck.drive import DriveGate
 
+# JPEG encoder, cheapest first. OpenCV encodes through libjpeg-turbo and
+# releases the GIL while it works, so the asyncio side (the drive tick that
+# publishes /cmd_vel) keeps running underneath. Pillow holds the GIL for
+# most of the encode: on the RPi that stalled the tick to 6 Hz and, with
+# the camera node next to it, starved the control stack until the MD80
+# drives dropped to idle (2026-09-12). Pillow stays as the fallback.
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 try:
     from PIL import Image as PILImage
-except ImportError:  # soft dep: no Pillow = empty camera stream
+except ImportError:  # soft dep: no encoder at all = empty camera stream
     PILImage = None
 
 # Fallbacks when no policy reference is set (or it fails to load) -- same
@@ -129,6 +139,11 @@ class GatewayNode(Node):
         self.declare_parameter("bridge_port", 8765)
         self.declare_parameter("color_topic", DEFAULT_COLOR_TOPIC)
         self.declare_parameter("jpeg_quality", 80)
+        # Most frames a second that get encoded for the stream. The camera
+        # may run faster; the rest are dropped before they cost anything.
+        # Encoding is the gateway's whole CPU bill, and on the RPi that
+        # bill is paid by the same four cores as the control loop.
+        self.declare_parameter("stream_hz", 10.0)
         # Where the detector's files are. Empty means "work it out", which
         # is right everywhere except a container that named it differently.
         self.declare_parameter("assets_dir", "")
@@ -147,11 +162,16 @@ class GatewayNode(Node):
         self._load_meta()
 
         self._jpeg_quality = int(self.get_parameter("jpeg_quality").value)
+        self._stream_period = 1.0 / max(
+            0.1, float(self.get_parameter("stream_hz").value))
+        self._last_encode = 0.0   # monotonic time of the last encoded frame
         self._frame_stamps = []   # wall times of the last encoded frames
         self.frames_seen = 0      # camera messages received (status field)
         self.frames_encoded = 0   # ... of which reached a viewer
         self._last_cb = None
-        if PILImage is not None:
+        if cv2 is not None or PILImage is not None:
+            self.get_logger().info(
+                "camera JPEG encoder: " + ("OpenCV" if cv2 is not None else "Pillow"))
             # The camera publishes best-effort; a default-QoS subscription
             # would match nothing, so mirror the sensor-data profile.
             self.create_subscription(
@@ -159,8 +179,8 @@ class GatewayNode(Node):
                 self._on_color, qos_profile_sensor_data)
         else:
             self.get_logger().warning(
-                "Pillow not installed -- camera stream will stay empty "
-                "(apt install python3-pil)")
+                "no JPEG encoder (neither OpenCV nor Pillow) -- camera "
+                "stream will stay empty (apt install python3-opencv)")
 
     def _load_meta(self):
         ref = self.get_parameter("policy").value
@@ -197,16 +217,16 @@ class GatewayNode(Node):
                 f"unsupported camera encoding {msg.encoding!r} "
                 f"(want {COLOR_ENCODING})", once=True)
             return
+        now = time.monotonic()
+        if now - self._last_encode < self._stream_period:
+            return  # over the stream rate: dropped before it costs anything
         try:
-            img = PILImage.frombuffer(
-                "RGB", (msg.width, msg.height), msg.data, "raw", "RGB", 0, 1)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=self._jpeg_quality)
+            jpeg = self._encode(msg)
         except Exception as e:  # noqa: BLE001 -- a bad frame must not kill
             # the spin thread (see web_console for the same rule)
             self.get_logger().warning(f"dropping camera frame: {e}", once=True)
             return
-        now = time.monotonic()
+        self._last_encode = now
         if self._last_cb is not None and now - self._last_cb > 1.0:
             self.get_logger().warning(
                 f"camera callback starved: {now - self._last_cb:.1f} s since "
@@ -218,12 +238,30 @@ class GatewayNode(Node):
         if self.frames_encoded == 1:
             self.get_logger().info(
                 f"camera: first frame encoded ({msg.width}x{msg.height}, "
-                f"{len(buf.getvalue()) // 1024} KB JPEG)")
+                f"{len(jpeg) // 1024} KB JPEG)")
         t0 = time.monotonic()
-        self.on_frame(buf.getvalue())
+        self.on_frame(jpeg)
         dt = time.monotonic() - t0
         if dt > 0.05:
             self.get_logger().warning(f"handing a frame to the server took {dt*1000:.0f} ms")
+
+    def _encode(self, msg):
+        """One rgb8 Image message -> JPEG bytes."""
+        if cv2 is not None:
+            import numpy as np
+            rgb = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+                msg.height, msg.width, 3)
+            ok, out = cv2.imencode(
+                ".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR),
+                [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality])
+            if not ok:
+                raise RuntimeError("cv2.imencode failed")
+            return out.tobytes()
+        img = PILImage.frombuffer(
+            "RGB", (msg.width, msg.height), msg.data, "raw", "RGB", 0, 1)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=self._jpeg_quality)
+        return buf.getvalue()
 
     def cam_hz(self):
         now = time.monotonic()

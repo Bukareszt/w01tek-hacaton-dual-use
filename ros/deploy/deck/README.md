@@ -88,17 +88,42 @@ source /opt/ros/jazzy/setup.bash && source ~/wojtek_ws/install/setup.bash
 
 setsid nohup taskset -c 0,1 ros2 run realsense2_camera realsense2_camera_node \
   --ros-args -p enable_depth:=false -p enable_color:=true \
-  -p rgb_camera.color_profile:="1280x720x15" -p pointcloud.enable:=false \
+  -p rgb_camera.color_profile:="640x480x15" -p pointcloud.enable:=false \
   -p align_depth.enable:=false -p enable_rgbd:=false -p enable_sync:=false \
   > ~/cam.log 2>&1 < /dev/null &
 
-PYTHONPATH=$HOME/py_deps setsid nohup taskset -c 0,1 \
+PYTHONPATH=$HOME/py_deps:$PYTHONPATH \
+CYCLONEDDS_URI="file:///etc/cyclonedds-rpi.xml,<CycloneDDS><Domain><Internal><SocketReceiveBufferSize min=\"8MB\"/></Internal></Domain></CycloneDDS>" \
+setsid nohup taskset -c 0,1 \
   ros2 run wojtek_deck deck_gateway \
   --ros-args -p port:=8090 -p assets_dir:=/home/rpi/deck_assets \
+  -p policy:=/home/rpi/policy \
   > ~/gateway.log 2>&1 < /dev/null &
 ```
 
 Cores 0 and 1 are the only ones these may use. The control loop owns 2 and 3.
+`py_deps` goes in front of the existing `PYTHONPATH`, never in place of it.
+setup.bash put ROS's own python path there, and without it `ros2` dies
+before the gateway starts (`No package metadata was found for ros2cli` in
+`~/gateway.log`). `policy:=` is the reference the service runs with, so
+the gateway drives inside the contract's command box.
+
+The camera runs at 640x480, not the sensor's full 1280x720, and the
+gateway asks for an 8 MB DDS receive buffer. Both are about the Pi's
+budget, and the day that taught it (2026-09-12): at 1280x720 the camera
+node and the gateway together left the Pi 2% idle, the control loop's
+command stream to the MD80 drives got gaps, and the drives dropped to
+idle with nothing in any log. The legs went soft, the controller stayed
+"active". At full size a frame is also 2.7 MB, about 1900 UDP fragments,
+and with the default buffer one lost fragment discards the frame; under
+load the gateway saw no frames at all. The panel's detector runs on the
+Deck from the stream it gets, so it loses nothing at 640x480.
+
+If the legs go soft with a live controller, check `top` on the robot
+before blaming the drives: under 30% idle is the warning sign. After a
+motor power cycle with the controller running, restart the service
+(`sudo systemctl restart wojtek-robot.service`): the drives come back
+idle and nothing re-enables them.
 
 In the simulation, the gateway starts by itself:
 
