@@ -205,7 +205,8 @@ The Deck has no keyboard, so these two are the only way to do either.
 
 | input | action |
 |---|---|
-| left stick | forward, back, turn |
+| left stick | forward, back, turn, at half the trained range |
+| right trigger | the other half, in proportion to the pull (the `SPD` readout shows the current range) |
 | right stick | strafe |
 | A | arm and disarm |
 | Y | stand up |
@@ -218,6 +219,16 @@ The buttons along the bottom of the page do the same things with a finger.
 The robot stops when the sticks go quiet for half a second. The gateway
 holds that timer, so a dropped wifi link stops the robot rather than
 latching the last command.
+
+The `restart` button on the page restarts the robot's control stack
+(`wojtek-robot.service`). Hold it for a second and a half; a tap does
+nothing. The gateway refuses unless the robot is lying, because the stack
+assumes the folded pose when it starts. It is the button for the motor
+power cycle: switch the motors off and on under a running controller and
+the drives come back idle, keep answering, and nothing re-enables them,
+so the legs go soft with everything reporting fine. Lie, then hold
+`restart`, then wait for `LINK` to settle and the stack to come back, about
+30 s. The panel itself stays up: the gateway is not part of that service.
 
 The robot's own Xbox pad can stay plugged in. Its teleop publishes only
 while its sticks are deflected and goes quiet two seconds after they

@@ -36,6 +36,13 @@ Websocket protocol (text frames, JSON):
     {"t":"height", "delta": +-0.005}           step the held stance height
     {"t":"call", key, [value]}                 arm/enable (bool) and the
                                                Trigger services below
+    {"t":"call", "key":"restart_stack"}        restart the robot's control
+                                               stack (the systemd unit in
+                                               the stack_unit parameter);
+                                               refused unless the robot is
+                                               lying, because the stack
+                                               assumes the folded pose when
+                                               it starts
 
 Threading is the web_console pattern: rclpy spins in a background thread;
 the ROS side hands data to the asyncio side with call_soon_threadsafe and
@@ -45,6 +52,7 @@ which rclpy allows from any thread.
 import asyncio
 import io
 import os
+import shutil
 import signal
 import threading
 import time
@@ -58,7 +66,7 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, JointState
 from std_srvs.srv import SetBool, Trigger
 
 from wojtek_policy.policy_source import load_meta
@@ -96,6 +104,10 @@ DRIVE_TICK_HZ = 20.0     # /cmd_vel publish rate (same as the other teleops)
 STATUS_HZ = 2.0          # status frames to the page
 CMD_TIMEOUT_S = 0.5      # dead-man: sticks older than this = link gone
 SILENCE_AFTER_S = 2.0    # zeroing burst length before going silent
+
+# "Lying" for the stack restart: every joint within this of the folded pose,
+# which is where the encoders read zero after a boot in that pose.
+LYING_MAX_RAD = 0.35
 
 SETBOOL_SERVICES = ("arm", "enable")
 TRIGGER_SERVICES = ("zero", "stand_up", "lie_down", "reset",
@@ -153,6 +165,15 @@ class GatewayNode(Node):
         self._cli.update({k: self.create_client(Trigger, f"wojtek/{k}")
                           for k in TRIGGER_SERVICES})
         self._pub_cmd = self.create_publisher(Twist, "cmd_vel", 10)
+
+        # The control stack's systemd unit, for the panel's restart button.
+        # Empty disables the button (the simulation has no such unit).
+        self.declare_parameter("stack_unit", "wojtek-robot.service")
+        # Where the joints are, for the "is it lying" check before a
+        # restart: the largest distance from zero, and when it was seen.
+        self.joint_max_rad = None
+        self._joint_stamp = 0.0
+        self.create_subscription(JointState, "joint_states", self._on_joints, 10)
 
         self.cmd_low = list(DEFAULT_CMD_LOW)
         self.cmd_high = list(DEFAULT_CMD_HIGH)
@@ -268,9 +289,29 @@ class GatewayNode(Node):
         recent = [t for t in self._frame_stamps if now - t < 2.0]
         return len(recent) / 2.0
 
+    def _on_joints(self, msg):
+        if msg.position:
+            self.joint_max_rad = max(abs(p) for p in msg.position)
+            self._joint_stamp = time.monotonic()
+
+    def lying(self):
+        """(ok, reason): may the control stack be restarted right now?"""
+        if self.joint_max_rad is None or time.monotonic() - self._joint_stamp > 1.0:
+            return False, "no fresh joint states"
+        if self.joint_max_rad > LYING_MAX_RAD:
+            return False, (f"robot is not lying: a joint is "
+                           f"{self.joint_max_rad:.2f} rad from folded")
+        return True, ""
+
+    def stack_unit(self):
+        unit = str(self.get_parameter("stack_unit").value).strip()
+        return unit if unit and shutil.which("systemctl") else ""
+
     # -- commands (asyncio thread) ---------------------------------------------
     def availability(self):
-        return {k: c.service_is_ready() for k, c in self._cli.items()}
+        avail = {k: c.service_is_ready() for k, c in self._cli.items()}
+        avail["restart_stack"] = bool(self.stack_unit())
+        return avail
 
     def call(self, key, value=None):
         cli = self._cli[key]
@@ -466,6 +507,48 @@ class Server:
             key = msg.get("key")
             if key in SETBOOL_SERVICES or key in TRIGGER_SERVICES:
                 self.node.call(key, msg.get("value"))
+            elif key == "restart_stack":
+                asyncio.ensure_future(self.restart_stack())
+
+    async def restart_stack(self):
+        """Restart the control stack's systemd unit, if the robot is lying.
+
+        The stack assumes the folded pose when it starts (real_io zeroes
+        there), so a restart mid-stand would leave every joint offset
+        wrong. What makes this necessary at all: after a motor power cycle
+        under a running controller the drives come back idle, keep
+        answering on CAN, and nothing re-enables them. The gateway is a
+        separate process, so the panel stays up and shows the stack coming
+        back.
+        """
+        def verdict(success, message):
+            self._broadcast({"t": "svc", "key": "restart_stack", "value": None,
+                             "success": success, "message": message})
+
+        unit = self.node.stack_unit()
+        if not unit:
+            verdict(False, "no control stack unit configured")
+            return
+        ok, why = self.node.lying()
+        if not ok:
+            verdict(False, why)
+            return
+        self.gate.stop(self.loop.time())
+        self.node.get_logger().warning(f"restarting {unit} on the panel's request")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "-n", "systemctl", "restart", unit,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE)
+            _, err = await asyncio.wait_for(proc.communicate(), timeout=90)
+        except Exception as e:  # noqa: BLE001 -- report, never crash the loop
+            verdict(False, f"restart failed: {e}")
+            return
+        if proc.returncode == 0:
+            verdict(True, f"{unit} restarted; the stack comes up in ~30 s")
+        else:
+            verdict(False, f"systemctl exited {proc.returncode}: "
+                           f"{err.decode(errors='replace').strip()[:120]}")
 
     # -- periodic tasks ----------------------------------------------------
     async def drive_tick(self):
