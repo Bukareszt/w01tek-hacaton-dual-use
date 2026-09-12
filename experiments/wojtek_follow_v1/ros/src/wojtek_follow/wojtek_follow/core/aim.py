@@ -90,6 +90,12 @@ class AimParams:
     # this: turn the body by hand and the tower must counter-rotate.
     pan_sign: float = -1.0
     tilt_sign: float = 1.0
+    # Where the tower camera's axis points at tilt zero, relative to the body:
+    # radians, positive pitched down.  Zero for a tower that looks level.
+    # The simulation stands the D435 in for the tower, and that one is
+    # mounted 15 degrees down, so there this is what keeps the bearing's
+    # elevation honest and the range projection on the target.
+    tower_pitch: float = 0.0
     # How stale the Deck's own detection may be before the target goes out at
     # zero confidence.  The Deck page coasts a lock for the same 0.7 s.
     coast_s: float = 0.7
@@ -412,7 +418,7 @@ class AimRelay:
         yaw, pitch, pan, tilt = predicted
         return Bearing(
             azimuth=self.params.pan_sign * pan - yaw,
-            elevation=self.params.tilt_sign * tilt - pitch,
+            elevation=self.params.tilt_sign * tilt - pitch - self.params.tower_pitch,
         )
 
     def target(self, now):

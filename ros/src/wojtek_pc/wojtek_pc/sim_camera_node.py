@@ -36,10 +36,15 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import Float64MultiArray
 
 from wojtek_pc import camera_spec
+
+try:
+    import cv2
+except ImportError:  # no JPEG then; the raw colour image still goes out
+    cv2 = None
 
 
 def _staged_scene(model_xml):
@@ -116,6 +121,17 @@ class SimCameraNode(Node):
         self._pub_color_info = self.create_publisher(
             CameraInfo, camera_spec.COLOR_INFO_TOPIC, qos_profile_sensor_data
         )
+        # The colour frame as JPEG, on the topic image_transport's compressed
+        # plugin would use on the robot, so the Deck gateway's cheap camera
+        # path works in the simulation too. A raw 640x360 frame is 0.7 MB
+        # and, through a Docker VM's default socket buffers, loses fragments
+        # until no frame arrives whole; the JPEG is 40 KB. Encoded only while
+        # someone subscribes.
+        self._pub_color_jpeg = self.create_publisher(
+            CompressedImage, camera_spec.COLOR_TOPIC + "/compressed",
+            qos_profile_sensor_data
+        )
+        self._jpeg_quality = int(self.declare_parameter("jpeg_quality", 80).value)
 
         depth_hz = self.get_parameter("depth_hz").value
         color_hz = self.get_parameter("color_hz").value
@@ -182,6 +198,17 @@ class SimCameraNode(Node):
             rgb, stamp, camera_spec.COLOR_FRAME_ID, camera_spec.COLOR_ENCODING,
             self._pub_color, self._pub_color_info,
         )
+        if cv2 is not None and self._pub_color_jpeg.get_subscription_count() > 0:
+            ok, jpeg = cv2.imencode(
+                ".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR),
+                [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality])
+            if ok:
+                msg = CompressedImage()
+                msg.header.stamp = stamp
+                msg.header.frame_id = camera_spec.COLOR_FRAME_ID
+                msg.format = "jpeg"
+                msg.data = jpeg.tobytes()
+                self._pub_color_jpeg.publish(msg)
 
 
 def main():

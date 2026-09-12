@@ -310,6 +310,17 @@ def test_bearing_of_a_centred_target_is_where_the_tower_points():
     assert math.degrees(bearing.azimuth) == pytest.approx(25.0)
 
 
+def test_a_tower_mounted_nose_down_reports_a_lower_elevation():
+    """A centred target on a tower pitched 15 degrees down sits 15 degrees
+    below the body's horizon, whatever the tilt reads."""
+    relay = make_relay(tower_pitch=math.radians(15.0))
+    relay.on_gimbal(T0, 0.0, 0.0)
+    relay.on_track(centred_track())
+    bearing = relay.bearing(T0)
+    assert math.degrees(bearing.elevation) == pytest.approx(-15.0)
+    assert math.degrees(bearing.azimuth) == pytest.approx(0.0)
+
+
 def test_a_pan_after_the_track_leaves_the_bearing_alone():
     """The target has not moved, so neither has its bearing.
 

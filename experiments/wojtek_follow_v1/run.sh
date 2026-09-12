@@ -42,10 +42,33 @@ case "${1:-}" in
     fi
     exec colcon build --paths "${paths[@]}" --packages-up-to wojtek_follow "$@"
     ;;
+  sim)
+    # Into the simulation's container (./ros/sim.sh must be up): copy this
+    # experiment in, build it there, and launch the node with the simulation
+    # preset. The container mounts ros/src and nothing else of the
+    # repository, which is the point of experiments/, so the copy is how the
+    # package gets in. See README.md, "Running it".
+    shift
+    docker exec wojtek_robot rm -rf /ros2_ws/experiments/wojtek_follow_v1
+    docker exec wojtek_robot mkdir -p /ros2_ws/experiments
+    docker cp "$HERE" wojtek_robot:/ros2_ws/experiments/wojtek_follow_v1
+    docker exec wojtek_robot bash -c '
+      source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
+      source /ros2_ws/install/setup.bash
+      cd /ros2_ws/experiments/wojtek_follow_v1/ros
+      colcon build --packages-select wojtek_follow --event-handlers status- desktop_notification-'
+    exec docker exec -it wojtek_robot bash -c '
+      source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
+      source /ros2_ws/install/setup.bash
+      source /ros2_ws/experiments/wojtek_follow_v1/ros/install/setup.bash
+      share=$(ros2 pkg prefix --share wojtek_follow)
+      exec ros2 launch wojtek_follow follow.launch.py params_file:=$share/config/follow_sim.yaml "$@"' _ "$@"
+    ;;
   *)
-    echo "usage: run.sh {test|build} [args]"
+    echo "usage: run.sh {test|build|sim} [args]"
     echo "  test   model-free unit tests (no ROS, no robot, no cameras)"
     echo "  build  colcon build of this experiment's ROS package"
+    echo "  sim    build and launch inside the ./ros/sim.sh container, gimbal fixed"
     exit 1
     ;;
 esac

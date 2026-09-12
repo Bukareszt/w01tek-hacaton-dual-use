@@ -25,13 +25,20 @@ package is written against.
 | `core/controller.py`, the body loop | yes | every state and limit | no |
 | `follow_node.py`, the ROS node | yes | callbacks over stubbed ROS | no |
 | the whole chain against the real gimbal | yes | **no** | no |
-| the whole chain in simulation | yes | **no** | no |
+| the whole chain in simulation, gimbal fixed | yes | **yes**, 2026-09-12 | no |
 
-Nothing in this package has run on the robot, in simulation, or against the
-real targeting controller. The tests are model-free and they use stubbed
-messages. They say the arithmetic is self-consistent. They say nothing about
-whether the servos turn the way this package assumes, which is the one thing
-the bench check below has to settle first.
+Nothing in this package has run on the robot or against the real targeting
+controller. The tests are model-free and they use stubbed messages. They say
+the arithmetic is self-consistent. They say nothing about whether the servos
+turn the way this package assumes, which is the one thing the bench check
+below has to settle first.
+
+In the simulation, with the gimbal held at zero and the virtual D435 standing
+in for the tower, the chain has run end to end once: a tap on the stop sign
+in the Deck page, ALIGN, APPROACH at up to 0.34 m/s, HOLD at 1.09 m by the
+depth range, the body 1.35 m from where it started by the simulation's own
+ground truth, and a clean stop when the lock ended. That is follow v1. The
+tower, the relay and the gimbal signs are untested by it.
 
 ## The contract
 
@@ -239,20 +246,39 @@ On the robot, with the gimbal and the cameras already up:
 ros2 launch wojtek_follow follow.launch.py cpus:=0,1
 ```
 
+In the simulation, from the repository root, with `./ros/sim.sh` already
+running in its container:
+
+```bash
+./experiments/wojtek_follow_v1/run.sh sim    # copy in, build, launch with config/follow_sim.yaml
+```
+
+The preset holds the gimbal at zero, points the tower camera_info at the
+virtual D435's colour stream, and carries that camera's mount, 15 degrees
+down and 0.17 m off the floor. Then open the Deck page on
+<http://localhost:8090>, stand and arm the robot, and tap a target on the
+tower picture. Two things about the simulation itself: the walking policy's
+servo gains let the standing pose sag about 0.24 rad from home, so the arm
+guard refuses until `max_arm_jump_rad` on `/wojtek_real_io` is raised to
+0.3; and the Deck page must be in a visible browser tab, because a hidden
+tab runs its timers once a second and the track goes stale.
+
 Cores 2 and 3 belong to the walking loop and nothing in this package may land
 there.
 
 ## Known gaps
 
-- **Nothing has run on hardware.** Not against the real gimbal, not in
-  simulation, not on the robot. The pan servo's rotation is unconfirmed by eye
-  and the tilt servo did not answer at all when PR 6 was written. Until both
-  move, this chain can only be exercised with the gimbal state held at zero,
-  which is plain follow v1 with a fixed camera.
+- **Nothing has run on hardware.** Not against the real gimbal, not on the
+  robot. The pan servo's rotation is unconfirmed by eye and the tilt servo did
+  not answer at all when PR 6 was written. Until both move, this chain can
+  only be exercised with the gimbal state held at zero, which is plain follow
+  v1 with a fixed camera, and that is what the simulation run exercised.
 - **No floor-plane fit.** The floor is wherever `depth_camera_height_m` and
   `depth_camera_pitch_deg` say it is. Both are parameters and both are
-  guesses until someone measures them. A pitch that is wrong by twenty degrees
-  makes the gate see nothing at all, which `test_gate.py` demonstrates.
+  guesses until someone measures them. The simulation showed what a wrong
+  pitch does: with the D435's 15 degrees left at zero, the floor filled every
+  obstacle band at 0.34 m and the robot sidestepped in BLOCKED for good.
+  The tower's own mount pitch is `tower_pitch_deg`, the same kind of guess.
 - **The tower to D435 offset is ignored.** The tower sits above and behind the
   depth camera, and the range projection pretends it does not. At a metre a
   10 cm vertical offset is under 6 degrees of elevation, which the 24 px window

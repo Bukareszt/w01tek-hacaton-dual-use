@@ -20,6 +20,7 @@ and the gateway's dead-man already stops the robot when a source goes quiet.
 """
 
 import json
+import math
 
 import numpy as np
 import rclpy
@@ -51,6 +52,7 @@ class FollowNode(Node):
         self._aim_params = AimParams(
             pan_sign=float(self._param("pan_sign", -1.0)),
             tilt_sign=float(self._param("tilt_sign", 1.0)),
+            tower_pitch=math.radians(float(self._param("tower_pitch_deg", 0.0))),
             coast_s=float(self._param("coast_s", 0.7)),
             track_latency_s=float(self._param("track_latency_s", 0.15)),
             gimbal_max_age_s=float(self._param("gimbal_max_age_s", 0.5)),

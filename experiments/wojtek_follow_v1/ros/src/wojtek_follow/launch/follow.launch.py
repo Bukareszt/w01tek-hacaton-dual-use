@@ -27,6 +27,8 @@ def _setup(context, *args, **kwargs):
     def arg(name):
         return LaunchConfiguration(name).perform(context)
 
+    share = get_package_share_directory(PKG)
+
     # The robot's bringup runs the walking stack under taskset on the isolcpus
     # real-time cores. Nothing in this package may land there: the 400 Hz
     # control loop owns those, and a numpy pass over a depth image on one of
@@ -48,7 +50,10 @@ def _setup(context, *args, **kwargs):
             executable="follow_node",
             name=arg("node_name"),
             namespace=arg("namespace"),
-            parameters=[arg("params_file"), overrides],
+            # follow.yaml is always the base; params_file lays its own
+            # values over it, so a preset like follow_sim.yaml lists only
+            # what differs.
+            parameters=[f"{share}/config/follow.yaml", arg("params_file"), overrides],
             prefix=prefix,
             output="screen",
         )

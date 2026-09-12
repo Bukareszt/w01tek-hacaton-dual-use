@@ -31,6 +31,12 @@
     pan_sign: -1.0
     tilt_sign: 1.0
 
+    # Where the tower camera looks at tilt zero, relative to the body.
+    # Degrees, positive pitched down. Zero for a tower that looks level;
+    # measure it with the tower homed and a tape. The simulation's stand-in
+    # camera is pitched 15 degrees down, see follow_sim.yaml.
+    tower_pitch_deg: 0.0
+
     # A fixed gimbal: pan and tilt are zero for ever, nothing is published to
     # the targeting side and nothing is expected from it. The "tower camera"
     # is then whatever camera_info tower_camera_info_topic points at, and

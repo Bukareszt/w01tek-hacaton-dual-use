@@ -345,6 +345,11 @@ class GatewayNode(Node):
         # The tower camera, /stream.mjpg?cam=tower. Raw and best-effort: the
         # targeting camera node is Python and publishes no compressed topic.
         self.declare_parameter("tower_topic", DEFAULT_TOWER_TOPIC)
+        # The simulation stands the virtual D435's colour stream in for the
+        # tower, and that one does have a compressed topic. Raw 640x360
+        # frames through the Docker VM's default socket buffers lose
+        # fragments and starve; the JPEG does not.
+        self.declare_parameter("tower_compressed", False)
         self.declare_parameter("jpeg_quality", 80)
         # Most frames a second that get encoded for the stream. The camera
         # may run faster; the rest are dropped before they cost anything.
@@ -408,7 +413,7 @@ class GatewayNode(Node):
                 bool(self.get_parameter("compressed").value), quality, period),
             "tower": CameraTap(
                 self, "tower", str(self.get_parameter("tower_topic").value),
-                False, quality, period),
+                bool(self.get_parameter("tower_compressed").value), quality, period),
         }
         for tap in self.taps.values():
             tap.want_frames = self.want_frames
