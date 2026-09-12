@@ -645,11 +645,21 @@ class Server:
         app.router.add_get("/stream.mjpg", self.stream)
         # The detector's assets, before the catch-all below: aiohttp tries
         # routes in the order they were added, and "/" matches everything.
+        #
+        # follow_symlinks: deploy.sh builds the workspace with
+        # `colcon --symlink-install`, so every file under the installed web/
+        # is a symlink into src/, and the asset store on the robot is itself
+        # a symlink. aiohttp's default refuses a file whose real path lies
+        # outside the static root, which turned the whole page into 404s
+        # (only index.html survived, served by FileResponse above). Both
+        # directories hold only what this package and fetch_assets.sh put
+        # there, so following links out of them is the intended layout.
         if self.assets_dir is not None:
             app.router.add_static("/det/", str(self.assets_dir),
-                                  show_index=False)
+                                  show_index=False, follow_symlinks=True)
         # css/js next to the page; no directory listing
-        app.router.add_static("/", self.web_dir, show_index=False)
+        app.router.add_static("/", self.web_dir, show_index=False,
+                              follow_symlinks=True)
         return app
 
 
