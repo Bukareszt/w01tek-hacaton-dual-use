@@ -160,16 +160,32 @@ start_camera() {
     local node="$1" ns="${1%/*}"; ns="${ns#/}"; local name="${1##*/}"
     if [ -n "$(cam_pid)" ]; then echo ">> camera driver already running (pid $(cam_pid))"; return 0; fi
     echo ">> starting a colour-only camera node for the Deck"
+    # A parameter file, not -p: the JPEG quality key starts with a dot
+    # (image_transport's naming) and rcl's -p parser rejects that.
+    cat > "$bags/camera_params.yaml" <<'YAML'
+/**:
+  ros__parameters:
+    initial_reset: true
+    enable_depth: false
+    enable_color: true
+    enable_infra1: false
+    enable_infra2: false
+    rgb_camera.color_profile: "640x480x30"
+    pointcloud.enable: false
+    align_depth.enable: false
+    enable_rgbd: false
+    enable_sync: false
+    .camera.color.image_raw.compressed.jpeg_quality: 80
+YAML
     setsid nohup taskset -c 0,1 ros2 run realsense2_camera realsense2_camera_node \
         --ros-args -r "__ns:=/$ns" -r "__node:=$name" \
-        -p initial_reset:=true -p enable_depth:=false -p enable_color:=true \
-        -p enable_infra1:=false -p enable_infra2:=false \
-        -p rgb_camera.color_profile:=640x480x30 -p pointcloud.enable:=false \
-        -p align_depth.enable:=false -p enable_rgbd:=false -p enable_sync:=false \
-        -p .camera.color.image_raw.compressed.jpeg_quality:=80 \
+        --params-file "$bags/camera_params.yaml" \
         > "$bags/camera.log" 2>&1 < /dev/null &
     echo $! > "$bags/camera.pid"
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 40); do
+        if ! kill -0 "$(cat "$bags/camera.pid")" 2>/dev/null; then
+            echo "!! the camera node exited at start:" >&2; tail -n 20 "$bags/camera.log" >&2; exit 2
+        fi
         ros2 node list 2>/dev/null | grep -qx "$node" && break
         sleep 1
     done
