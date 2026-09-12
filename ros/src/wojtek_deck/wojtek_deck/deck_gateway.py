@@ -7,9 +7,12 @@ One HTTP port (parameter `port`, default 8090) carries three things:
 
   GET /              the panel (web/index.html and the files next to it)
   GET /ws            the command websocket: JSON both ways, see below
-  GET /stream.mjpg   the colour camera as MJPEG (multipart), for the page's
-                     <img> and for any detector on the handheld that wants
-                     the same frames (OpenCV opens the URL directly)
+  GET /stream.mjpg   a camera as MJPEG (multipart), for the page's <img> and
+                     for any detector on the handheld that wants the same
+                     frames (OpenCV opens the URL directly). ?cam=front is
+                     the body's colour camera and the default; ?cam=tower is
+                     the tower camera the targeting gimbal aims. Each camera
+                     is subscribed only while somebody watches it.
   GET /det/          the detector's assets: the YOLOX network and the
                      onnxruntime-web runtime the page runs it with. Big
                      downloaded binaries, so they live in a store outside
@@ -29,7 +32,8 @@ Websocket protocol (text frames, JSON):
                   bridge_port, policy}
     {"t":"avail", "svc": {key: bool}}          which services answer
     {"t":"svc", key, value, success, message}  a service call's verdict
-    {"t":"status", drive: idle|live|deadman, height, cam_hz, clients}
+    {"t":"status", drive: idle|live|deadman|follow, height, cam_hz,
+                   tower_hz, follow, clients}
   page -> server
     {"t":"cmd", vx, vy, yaw, [height]}         normalized sticks, >= 10 Hz
     {"t":"stop"}                               explicit stop
@@ -43,9 +47,24 @@ Websocket protocol (text frames, JSON):
                                                lying, because the stack
                                                assumes the folded pose when
                                                it starts
-    {"t":"track", cx, cy, w, h, fw, fh, label, age}
+    {"t":"track", cx, cy, w, h, fw, fh, label, age, cam}
     {"t":"unlock"}                             the page's lock-in (web/lock.js),
-                                               10 Hz; not acted on here yet
+                                               10 Hz while a target is held,
+                                               `cam` the camera it was tapped
+                                               on
+
+The lock-in is the follow chain's first link. A `track` is republished as
+std_msgs/String on /wojtek/track/target -- the page's own JSON plus a
+`stamp` of the robot-clock moment it arrived -- and it arms the follow
+source in the drive gate. An `unlock` publishes {"unlock": true, "stamp"}
+once and disarms it. A plain String carries the JSON because the robot's
+package list is fixed and offline, with no vision_msgs in it, and
+/wojtek/nav_command already travels the same way.
+
+The follow node that reads those tracks answers on /wojtek/follow/cmd_vel,
+which this process subscribes to and feeds to the gate as a second drive
+source. The pad always wins; drive.py holds that rule. Nothing here talks
+to the gimbal: the follow node owns /targeting/enable_tracking.
 
 Threading is the web_console pattern: rclpy spins in a background thread;
 the ROS side hands data to the asyncio side with call_soon_threadsafe and
@@ -70,10 +89,12 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import CompressedImage, Image, JointState
+from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
 
 from wojtek_policy.policy_source import load_meta
 from wojtek_deck.drive import DriveGate
+from wojtek_deck.stream import next_frame
 
 # JPEG encoder, cheapest first. OpenCV encodes through libjpeg-turbo and
 # releases the GIL while it works, so the asyncio side (the drive tick that
@@ -101,7 +122,24 @@ DEFAULT_HEIGHT = 0.125
 # the real perception stack publishes. Repeated here (not imported) because
 # wojtek_pc is PC-only and never reaches the robot.
 DEFAULT_COLOR_TOPIC = "/camera/camera/color/image_raw"
-COLOR_ENCODING = "rgb8"
+
+# The tower camera: a plain UVC webcam on the gimbal, published raw and
+# best-effort by the targeting experiment's usb_camera_node at 640x480 in
+# bgr8. The name is repeated here rather than imported, for the same reason
+# the colour topic is: nothing in ros/ may depend on an experiment.
+DEFAULT_TOWER_TOPIC = "/targeting_camera/targeting_camera/image_raw"
+
+# Raw encodings either camera may arrive in. Three bytes a pixel, and the
+# only difference is which way round they are.
+RAW_ENCODINGS = ("rgb8", "bgr8")
+
+CAMERAS = ("front", "tower")   # ?cam= on /stream.mjpg; front is the default
+
+# What a page `track` carries to the follow node. A whitelist, because the
+# gateway copies the page's own JSON onto a robot topic: cx, cy, w and h are
+# the box in the pixels of an fw by fh frame, `age` is how long ago a
+# detection last matched it, and `cam` is the camera it was tapped on.
+TRACK_FIELDS = ("cx", "cy", "w", "h", "fw", "fh", "label", "age", "cam")
 
 DRIVE_TICK_HZ = 20.0     # /cmd_vel publish rate (same as the other teleops)
 STATUS_HZ = 2.0          # status frames to the page
@@ -141,20 +179,172 @@ def assets_store():
     return None
 
 
+def encode_jpeg(msg, quality):
+    """One raw Image message (rgb8 or bgr8) -> JPEG bytes."""
+    if cv2 is not None:
+        import numpy as np
+        raw = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+            msg.height, msg.width, 3)
+        bgr = raw if msg.encoding == "bgr8" else cv2.cvtColor(
+            raw, cv2.COLOR_RGB2BGR)
+        ok, out = cv2.imencode(".jpg", bgr,
+                               [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        if not ok:
+            raise RuntimeError("cv2.imencode failed")
+        return out.tobytes()
+    # Pillow's raw decoder knows "RGB" and "BGR", not the ROS encoding names.
+    raw_mode = "BGR" if msg.encoding == "bgr8" else "RGB"
+    img = PILImage.frombuffer("RGB", (msg.width, msg.height), msg.data,
+                              "raw", raw_mode, 0, 1)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
+
+
+class CameraTap:
+    """One camera's path from ROS to the MJPEG stream.
+
+    The front camera and the tower camera are the same path twice, so each
+    is one of these: its own subscription, its own rate limit, its own
+    counters. One camera going quiet then says nothing about the other, and
+    the page can watch either.
+
+    The subscription exists only while somebody is on that camera's stream.
+    Receiving a raw image costs a third of a core on the RPi whether or not
+    a frame gets encoded, the gateway is resident in the robot service, and
+    there are two cameras on one USB2 bus: an unwatched picture must cost
+    nothing.
+    """
+
+    def __init__(self, node, name, topic, compressed, quality, period):
+        self.node = node
+        self.name = name              # "front" or "tower"
+        self.topic = topic
+        self.compressed = bool(compressed)   # take the camera node's own JPEG
+        self.quality = int(quality)
+        self.period = float(period)   # seconds between encoded frames
+        self.on_frame = None          # set by the node: (name, bytes) -> None
+        self.want_frames = None       # set by the node: (name) -> bool
+        self.frames_seen = 0          # camera messages received
+        self.frames_encoded = 0       # ... of which reached a viewer
+        self._sub = None
+        self._last_encode = 0.0       # monotonic time of the last one out
+        self._stamps = []             # wall times of the last frames out
+        self._last_cb = None
+
+    def log(self):
+        return self.node.get_logger()
+
+    def set_wanted(self, wanted):
+        if wanted and self._sub is None:
+            # The cameras publish best-effort; a default-QoS subscription
+            # would match nothing, so mirror the sensor-data profile.
+            if self.compressed:
+                self._sub = self.node.create_subscription(
+                    CompressedImage, self.topic + "/compressed",
+                    self._on_compressed, qos_profile_sensor_data)
+            else:
+                self._sub = self.node.create_subscription(
+                    Image, self.topic, self._on_raw, qos_profile_sensor_data)
+            self.log().info(
+                f"{self.name} camera: viewer arrived, subscribing to "
+                f"{self.topic}{'/compressed' if self.compressed else ''}")
+        elif not wanted and self._sub is not None:
+            self.node.destroy_subscription(self._sub)
+            self._sub = None
+            self._stamps = []
+            self.log().info(
+                f"{self.name} camera: last viewer gone, unsubscribed")
+
+    def hz(self):
+        now = time.monotonic()
+        recent = [t for t in self._stamps if now - t < 2.0]
+        return len(recent) / 2.0
+
+    def _due(self):
+        """Is this frame wanted, and is it time for one? Rate limit included."""
+        if self.on_frame is None or not self.want_frames(self.name):
+            return False
+        now = time.monotonic()
+        if now - self._last_encode < self.period:
+            return False   # over the stream rate: dropped before it costs
+        return True
+
+    def _sent(self, now):
+        self._last_encode = now
+        self._stamps = [t for t in self._stamps if now - t < 2.0]
+        self._stamps.append(now)
+        self.frames_encoded += 1
+
+    def _on_compressed(self, msg):
+        """A JPEG from the camera node: pass it through, nothing to encode."""
+        self.frames_seen += 1
+        if not self._due():
+            return
+        if "jpeg" not in msg.format.lower():
+            self.log().warning(
+                f"compressed {self.name} camera format {msg.format!r} is not "
+                "JPEG; set the camera's compressed format to jpeg", once=True)
+            return
+        self._sent(time.monotonic())
+        if self.frames_encoded == 1:
+            self.log().info(
+                f"{self.name} camera: first frame passed through "
+                f"({len(msg.data) // 1024} KB JPEG from the camera node)")
+        self.on_frame(self.name, bytes(msg.data))
+
+    def _on_raw(self, msg):
+        self.frames_seen += 1
+        if not self._due():
+            return
+        if msg.encoding not in RAW_ENCODINGS:
+            self.log().warning(
+                f"unsupported {self.name} camera encoding {msg.encoding!r} "
+                f"(want one of {', '.join(RAW_ENCODINGS)})", once=True)
+            return
+        try:
+            jpeg = encode_jpeg(msg, self.quality)
+        except Exception as e:  # noqa: BLE001 -- a bad frame must not kill
+            # the spin thread (see web_console for the same rule)
+            self.log().warning(
+                f"dropping {self.name} camera frame: {e}", once=True)
+            return
+        now = time.monotonic()
+        if self._last_cb is not None and now - self._last_cb > 1.0:
+            self.log().warning(
+                f"{self.name} camera callback starved: {now - self._last_cb:.1f} "
+                f"s since the previous frame (seen {self.frames_seen})")
+        self._last_cb = now
+        self._sent(now)
+        if self.frames_encoded == 1:
+            self.log().info(
+                f"{self.name} camera: first frame encoded ({msg.width}x"
+                f"{msg.height}, {len(jpeg) // 1024} KB JPEG)")
+        t0 = time.monotonic()
+        self.on_frame(self.name, jpeg)
+        dt = time.monotonic() - t0
+        if dt > 0.05:
+            self.log().warning(
+                f"handing a {self.name} frame to the server took {dt*1000:.0f} ms")
+
+
 class GatewayNode(Node):
-    """ROS half: service clients, the /cmd_vel publisher, the camera tap."""
+    """ROS half: service clients, the /cmd_vel publisher, the camera taps."""
 
     def __init__(self, emit, want_frames):
         super().__init__("deck_gateway")
         self.emit = emit                # (dict) -> None, safe from ROS thread
-        self.want_frames = want_frames  # () -> bool: anyone on /stream.mjpg?
-        self.on_frame = None            # set by the server: (bytes) -> None
+        self.want_frames = want_frames  # (cam) -> bool: anyone on that stream?
+        self.on_follow = None           # set by the server: (vx, vy, yaw) -> None
 
         self.declare_parameter("policy", "")
         self.declare_parameter("port", 8090)
         # Told to the page so it knows where foxglove_bridge listens.
         self.declare_parameter("bridge_port", 8765)
         self.declare_parameter("color_topic", DEFAULT_COLOR_TOPIC)
+        # The tower camera, /stream.mjpg?cam=tower. Raw and best-effort: the
+        # targeting camera node is Python and publishes no compressed topic.
+        self.declare_parameter("tower_topic", DEFAULT_TOWER_TOPIC)
         self.declare_parameter("jpeg_quality", 80)
         # Most frames a second that get encoded for the stream. The camera
         # may run faster; the rest are dropped before they cost anything.
@@ -177,6 +367,13 @@ class GatewayNode(Node):
         self._cli.update({k: self.create_client(Trigger, f"wojtek/{k}")
                           for k in TRIGGER_SERVICES})
         self._pub_cmd = self.create_publisher(Twist, "cmd_vel", 10)
+        # The lock-in, on its way to the follow node. JSON in a String: see
+        # the module docstring for why it is not a typed message.
+        self._pub_track = self.create_publisher(String, "wojtek/track/target", 10)
+        # The follow node's answer. It reaches the drive gate as a second
+        # source and drives only while a lock is on and the pad is quiet.
+        self.create_subscription(Twist, "wojtek/follow/cmd_vel",
+                                 self._on_follow_cmd, 10)
 
         # The control stack's systemd unit, for the panel's restart button.
         # Empty disables the button (the simulation has no such unit).
@@ -194,20 +391,8 @@ class GatewayNode(Node):
         self.policy_name = ""
         self._load_meta()
 
-        self._jpeg_quality = int(self.get_parameter("jpeg_quality").value)
-        self._stream_period = 1.0 / max(
-            0.1, float(self.get_parameter("stream_hz").value))
-        self._last_encode = 0.0   # monotonic time of the last encoded frame
-        self._frame_stamps = []   # wall times of the last encoded frames
-        self.frames_seen = 0      # camera messages received (status field)
-        self.frames_encoded = 0   # ... of which reached a viewer
-        self._last_cb = None
-        # The camera subscription exists only while somebody watches the
-        # stream (set_camera_wanted). Receiving the raw image costs a third
-        # of a core on the RPi whether or not a frame gets encoded, and the
-        # gateway is resident in the robot service now, so an unwatched
-        # panel must cost nothing.
-        self._color_sub = None
+        quality = int(self.get_parameter("jpeg_quality").value)
+        period = 1.0 / max(0.1, float(self.get_parameter("stream_hz").value))
         self._encoder = None
         if cv2 is not None or PILImage is not None:
             self._encoder = "OpenCV" if cv2 is not None else "Pillow"
@@ -215,7 +400,18 @@ class GatewayNode(Node):
         else:
             self.get_logger().warning(
                 "no JPEG encoder (neither OpenCV nor Pillow) -- camera "
-                "stream will stay empty (apt install python3-opencv)")
+                "streams will stay empty (apt install python3-opencv)")
+        # One tap per camera, subscribed only while watched.
+        self.taps = {
+            "front": CameraTap(
+                self, "front", str(self.get_parameter("color_topic").value),
+                bool(self.get_parameter("compressed").value), quality, period),
+            "tower": CameraTap(
+                self, "tower", str(self.get_parameter("tower_topic").value),
+                False, quality, period),
+        }
+        for tap in self.taps.values():
+            tap.want_frames = self.want_frames
 
     def _load_meta(self):
         ref = self.get_parameter("policy").value
@@ -242,113 +438,60 @@ class GatewayNode(Node):
         self.get_logger().info(
             f"command box from {meta['run_name']} ({source})")
 
-    # -- camera (ROS thread) -------------------------------------------------
-    def set_camera_wanted(self, wanted):
-        """Subscribe to the camera while a viewer is on the stream."""
-        if self._encoder is None:
-            return
-        if wanted and self._color_sub is None:
-            # The camera publishes best-effort; a default-QoS subscription
-            # would match nothing, so mirror the sensor-data profile.
-            topic = self.get_parameter("color_topic").value
-            if self.get_parameter("compressed").value:
-                self._color_sub = self.create_subscription(
-                    CompressedImage, topic + "/compressed",
-                    self._on_compressed, qos_profile_sensor_data)
-                self.get_logger().info(
-                    "camera: viewer arrived, subscribing (compressed)")
-            else:
-                self._color_sub = self.create_subscription(
-                    Image, topic, self._on_color, qos_profile_sensor_data)
-                self.get_logger().info("camera: viewer arrived, subscribing")
-        elif not wanted and self._color_sub is not None:
-            self.destroy_subscription(self._color_sub)
-            self._color_sub = None
-            self._frame_stamps = []
-            self.get_logger().info("camera: last viewer gone, unsubscribed")
+    # -- camera (asyncio thread) ---------------------------------------------
+    def set_camera_wanted(self, cam, wanted):
+        """Subscribe to one camera while a viewer is on its stream.
 
-    def _on_compressed(self, msg):
-        """A JPEG from the camera node: pass it through, nothing to encode."""
-        self.frames_seen += 1
-        if self.on_frame is None or not self.want_frames():
+        Called from the stream handler, which runs on the asyncio side.
+        rclpy allows creating and destroying a subscription from any thread.
+        """
+        tap = self.taps.get(cam)
+        if tap is None:
             return
-        if "jpeg" not in msg.format.lower():
-            self.get_logger().warning(
-                f"compressed camera format {msg.format!r} is not JPEG; set "
-                "the camera's compressed format to jpeg", once=True)
-            return
-        now = time.monotonic()
-        if now - self._last_encode < self._stream_period:
-            return
-        self._last_encode = now
-        self._frame_stamps = [t for t in self._frame_stamps if now - t < 2.0]
-        self._frame_stamps.append(now)
-        self.frames_encoded += 1
-        if self.frames_encoded == 1:
-            self.get_logger().info(
-                f"camera: first frame passed through ({len(msg.data) // 1024} "
-                f"KB JPEG from the camera node)")
-        self.on_frame(bytes(msg.data))
+        if wanted and self._encoder is None and not tap.compressed:
+            return   # nothing here could encode a raw frame, so do not pay
+        tap.set_wanted(wanted)
 
-    def _on_color(self, msg):
-        self.frames_seen += 1
-        if self.on_frame is None or not self.want_frames():
-            return
-        if msg.encoding != COLOR_ENCODING:
-            self.get_logger().warning(
-                f"unsupported camera encoding {msg.encoding!r} "
-                f"(want {COLOR_ENCODING})", once=True)
-            return
-        now = time.monotonic()
-        if now - self._last_encode < self._stream_period:
-            return  # over the stream rate: dropped before it costs anything
-        try:
-            jpeg = self._encode(msg)
-        except Exception as e:  # noqa: BLE001 -- a bad frame must not kill
-            # the spin thread (see web_console for the same rule)
-            self.get_logger().warning(f"dropping camera frame: {e}", once=True)
-            return
-        self._last_encode = now
-        if self._last_cb is not None and now - self._last_cb > 1.0:
-            self.get_logger().warning(
-                f"camera callback starved: {now - self._last_cb:.1f} s since "
-                f"the previous frame (seen {self.frames_seen})")
-        self._last_cb = now
-        self._frame_stamps = [t for t in self._frame_stamps if now - t < 2.0]
-        self._frame_stamps.append(now)
-        self.frames_encoded += 1
-        if self.frames_encoded == 1:
-            self.get_logger().info(
-                f"camera: first frame encoded ({msg.width}x{msg.height}, "
-                f"{len(jpeg) // 1024} KB JPEG)")
-        t0 = time.monotonic()
-        self.on_frame(jpeg)
-        dt = time.monotonic() - t0
-        if dt > 0.05:
-            self.get_logger().warning(f"handing a frame to the server took {dt*1000:.0f} ms")
+    def tap(self, cam):
+        return self.taps[cam]
 
-    def _encode(self, msg):
-        """One rgb8 Image message -> JPEG bytes."""
-        if cv2 is not None:
-            import numpy as np
-            rgb = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-                msg.height, msg.width, 3)
-            ok, out = cv2.imencode(
-                ".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR),
-                [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality])
-            if not ok:
-                raise RuntimeError("cv2.imencode failed")
-            return out.tobytes()
-        img = PILImage.frombuffer(
-            "RGB", (msg.width, msg.height), msg.data, "raw", "RGB", 0, 1)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=self._jpeg_quality)
-        return buf.getvalue()
+    # -- the lock-in (asyncio thread) ----------------------------------------
+    def clock_s(self):
+        """This node's clock in seconds, the stamp every track carries.
 
-    def cam_hz(self):
-        now = time.monotonic()
-        recent = [t for t in self._frame_stamps if now - t < 2.0]
-        return len(recent) / 2.0
+        The handheld's clock is its own and can be minutes out. The gimbal
+        node judges a target by its age against the robot's clock, so the
+        moment that counts is the one this process read on arrival.
+        """
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def publish_track(self, msg):
+        """One page `track` -> std_msgs/String on /wojtek/track/target.
+
+        Only the fields the follow node reads are copied across, so a page
+        sending anything else cannot put it on a robot topic.
+        """
+        out = {k: msg.get(k) for k in TRACK_FIELDS}
+        if out["cam"] not in CAMERAS:
+            out["cam"] = "front"
+        out["stamp"] = self.clock_s()
+        self._pub_track.publish(String(data=json.dumps(out)))
+
+    def publish_unlock(self):
+        """The lock ended: one message that says so, on the same topic."""
+        self._pub_track.publish(String(data=json.dumps(
+            {"unlock": True, "stamp": self.clock_s()})))
+
+    def _on_follow_cmd(self, msg):
+        """The follow node's answer, on the ROS thread.
+
+        It goes to the server, which hands it to the gate on the asyncio
+        thread with the clock the pad frames are stamped with. The gate is
+        touched from one thread only, which is what keeps the dead-man's
+        arithmetic honest.
+        """
+        if self.on_follow is not None:
+            self.on_follow(msg.linear.x, msg.linear.y, msg.angular.z)
 
     def _on_joints(self, msg):
         if msg.position:
@@ -443,7 +586,9 @@ class Server:
         self.assets_dir = assets_dir
         self.loop = loop
         self.clients = set()      # websocket connections
-        self.streams = set()      # asyncio.Queue per MJPEG viewer
+        # One set of viewer queues per camera: an asyncio.Queue per MJPEG
+        # viewer, so a watcher of one picture does not subscribe the other.
+        self.streams = {name: set() for name in CAMERAS}
         self.gate = DriveGate(node.cmd_low, node.cmd_high, node.height_range,
                               node.height_default, timeout_s=CMD_TIMEOUT_S,
                               silence_after_s=SILENCE_AFTER_S)
@@ -453,11 +598,14 @@ class Server:
     def emit(self, obj):
         self.loop.call_soon_threadsafe(self._broadcast, obj)
 
-    def push_frame(self, jpeg):
-        self.loop.call_soon_threadsafe(self._fanout_frame, jpeg)
+    def push_frame(self, cam, jpeg):
+        self.loop.call_soon_threadsafe(self._fanout_frame, cam, jpeg)
 
-    def want_frames(self):
-        return bool(self.streams)
+    def push_follow(self, vx, vy, yaw):
+        self.loop.call_soon_threadsafe(self._take_follow, vx, vy, yaw)
+
+    def want_frames(self, cam):
+        return bool(self.streams.get(cam))
 
     def _broadcast(self, obj):
         if not self.clients:
@@ -467,8 +615,8 @@ class Server:
             if not ws.closed:
                 asyncio.ensure_future(ws.send_str(data))
 
-    def _fanout_frame(self, jpeg):
-        for q in self.streams:
+    def _fanout_frame(self, cam, jpeg):
+        for q in self.streams.get(cam, ()):
             # Latest frame wins: a slow viewer drops frames, never lags.
             if q.full():
                 try:
@@ -477,12 +625,25 @@ class Server:
                     pass
             q.put_nowait(jpeg)
 
+    def _take_follow(self, vx, vy, yaw):
+        """A /wojtek/follow/cmd_vel frame, now on the asyncio thread.
+
+        Stamped with the same clock as the pad frames, which is the only way
+        the gate can tell which source spoke last.
+        """
+        self.gate.follow(self.loop.time(), vx, vy, yaw)
+
     # -- HTTP handlers -----------------------------------------------------
     async def index(self, request):
         return web.FileResponse(os.path.join(self.web_dir, "index.html"),
                                 headers={"Cache-Control": "no-store"})
 
     async def stream(self, request):
+        """One camera as MJPEG. ?cam=front (the default) or ?cam=tower."""
+        cam = request.query.get("cam", "front")
+        if cam not in CAMERAS:
+            raise web.HTTPNotFound(
+                text=f"no camera {cam!r} (have {', '.join(CAMERAS)})")
         boundary = "wojtekframe"
         resp = web.StreamResponse(status=200, headers={
             "Content-Type": f"multipart/x-mixed-replace; boundary={boundary}",
@@ -490,11 +651,17 @@ class Server:
         })
         await resp.prepare(request)
         q = asyncio.Queue(maxsize=1)
-        self.streams.add(q)
-        self.node.set_camera_wanted(True)
+        viewers = self.streams[cam]
+        viewers.add(q)
+        self.node.set_camera_wanted(cam, True)
         try:
+            # The wait is bounded (wojtek_deck/stream.py): a viewer that left
+            # while the camera was silent is found at the next poll, not at
+            # a write that never comes.
             while True:
-                jpeg = await q.get()
+                jpeg = await next_frame(q, request)
+                if jpeg is None:
+                    break
                 await resp.write(
                     f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
                     f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
@@ -503,9 +670,9 @@ class Server:
                 ConnectionError):
             pass
         finally:
-            self.streams.discard(q)
-            if not self.streams:
-                self.node.set_camera_wanted(False)
+            viewers.discard(q)
+            if not viewers:
+                self.node.set_camera_wanted(cam, False)
         return resp
 
     async def websocket(self, request):
@@ -527,7 +694,12 @@ class Server:
         finally:
             self.clients.discard(ws)
             if not self.clients:
-                # Last page gone: whatever it was commanding stops now.
+                # Last page gone: whatever it was commanding stops now. A
+                # lock it held ends the same way, and the follow node is
+                # told so, because nothing else would ever tell it.
+                if self.gate.follow_active:
+                    self.node.publish_unlock()
+                    self.node.get_logger().info("last page gone, lock dropped")
                 self.gate.stop(self.loop.time())
         return ws
 
@@ -543,15 +715,23 @@ class Server:
         }
 
     def status(self):
+        taps = self.node.taps
         return {
             "t": "status",
             "drive": self.gate.state,
+            # Whether a lock is armed here. The page draws its own lock, so
+            # this is the robot's word for it, and the two showing different
+            # things is the sign that a track or an unlock went missing.
+            "follow": self.gate.follow_active,
             "height": self.gate.height,
-            "cam_hz": self.node.cam_hz(),
-            "frames_seen": self.node.frames_seen,
-            "frames_encoded": self.node.frames_encoded,
+            "cam_hz": taps["front"].hz(),
+            "tower_hz": taps["tower"].hz(),
+            # Summed over the cameras: a diagnostic for a curl, not for the
+            # page, which reads the rate of the picture it is showing.
+            "frames_seen": sum(t.frames_seen for t in taps.values()),
+            "frames_encoded": sum(t.frames_encoded for t in taps.values()),
             "clients": len(self.clients),
-            "viewers": len(self.streams),
+            "viewers": sum(len(v) for v in self.streams.values()),
         }
 
     def _on_message(self, msg):
@@ -562,6 +742,28 @@ class Server:
                               msg.get("yaw", 0), msg.get("height"))
         elif t == "stop":
             self.gate.stop(now)
+        elif t == "track":
+            # Ten a second while a target is held. Each one goes out on
+            # /wojtek/track/target and arms the follow source; the follow
+            # node's own /wojtek/follow/cmd_vel is what actually drives.
+            self.node.publish_track(msg)
+            # Only a tower lock can drive: a front-camera pixel carries no
+            # tower bearing, and the follow node refuses such tracks. The
+            # front lock still shows on the page and still goes out on the
+            # topic, but the drive stays with the pad.
+            if msg.get("cam") != "tower":
+                self.node.get_logger().info(
+                    f"lock on {msg.get('label')!r} on the front camera: "
+                    "shown, not followed", throttle_duration_sec=5.0)
+            elif not self.gate.follow_active:
+                self.node.get_logger().info(
+                    f"lock on {msg.get('label')!r} ({msg.get('cam')} camera)")
+                self.gate.start_follow()
+        elif t == "unlock":
+            if self.gate.follow_active:
+                self.node.get_logger().info("lock released")
+            self.node.publish_unlock()
+            self.gate.end_follow(now)
         elif t == "height":
             h = self.gate.step_height(msg.get("delta", 0.0))
             self._broadcast({"t": "status", **{k: v for k, v in
@@ -672,8 +874,8 @@ def main():
         if server is not None:
             server.emit(obj)
 
-    def want_frames():
-        return server is not None and server.want_frames()
+    def want_frames(cam):
+        return server is not None and server.want_frames(cam)
 
     node = GatewayNode(emit, want_frames)
     port = int(node.get_parameter("port").value)
@@ -695,7 +897,9 @@ def main():
         node.get_logger().info(f"detector assets from {assets_dir}")
 
     server = Server(node, web_dir, loop, assets_dir)
-    node.on_frame = server.push_frame
+    for tap in node.taps.values():
+        tap.on_frame = server.push_frame
+    node.on_follow = server.push_follow
 
     stopping = asyncio.Event()
 

@@ -7,7 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  COAST_S, LOST_S, Lock, TAP_BOX, coverMap, pick, stickMoved, toFrame, toViewport,
+  COAST_S, LOST_S, Lock, TAP_BOX, coverMap, holdsOn, pick, stickMoved, toFrame,
+  toViewport,
 } from "../lock.js";
 
 const FW = 640, FH = 480;
@@ -160,4 +161,27 @@ test("covers says whether a second tap landed on the target", () => {
   const lk = new Lock(pick([person], 260, 150, FW, FH), FW, FH, 10);
   assert.ok(lk.covers(210, 300));
   assert.equal(lk.covers(10, 10), false);
+});
+
+// ---- which camera the lock belongs to ---------------------------------------
+// The panel shows one of two pictures, the front camera or the tower camera.
+// A box is pixels of the picture it was tapped on, so the message says which
+// one, and a lock never crosses to the other.
+
+test("the track message says which camera the box was tapped on", () => {
+  const lk = new Lock(pick([person], 260, 150, FW, FH), FW, FH, 10, "tower");
+  assert.equal(lk.cam, "tower");
+  assert.equal(lk.message(10).cam, "tower");
+});
+
+test("a lock with no camera named is the front camera", () => {
+  const lk = new Lock(pick([person], 260, 150, FW, FH), FW, FH, 10);
+  assert.equal(lk.message(10).cam, "front");
+});
+
+test("a lock holds only on the camera it was tapped on", () => {
+  const lk = new Lock(pick([person], 260, 150, FW, FH), FW, FH, 10, "tower");
+  assert.equal(holdsOn(lk, "tower"), true);
+  assert.equal(holdsOn(lk, "front"), false);   // the switch drops the lock
+  assert.equal(holdsOn(null, "tower"), false);
 });

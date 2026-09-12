@@ -5,22 +5,25 @@
 //                                   the camera image already on screen
 // The camera is the gateway's MJPEG stream in a plain <img>, filling the
 // screen; the reticle, horizon and detections are drawn on the overlay
-// canvas above it, and the instruments are laid over both.
+// canvas above it, and the instruments are laid over both. Two cameras
+// reach that <img>, the body's front camera and the camera on the gimbal
+// tower, and the chips under the masthead pick which one is in the picture.
 //
 // A tap on the picture locks onto the box under the finger (lock.js). The
 // lock is held from frame to frame and sent to the gateway ten times a
-// second as {t:"track"}, which is what the robot will follow. Sticks, stop
-// and a second tap on the target let go.
+// second as {t:"track"}, which is what the robot follows. Sticks, stop, a
+// camera switch and a second tap on the target let go.
 //
 // Query parameters: ?telemetry=on shows the instruments the bridge feeds
 // (off by default: no bridge, no numbers), ?bridge=<url> for the
-// telemetry bridge, ?det=off to
+// telemetry bridge, ?cam=front or ?cam=tower for the opening picture,
+// ?det=off to
 // switch detection off, ?det=cpu or ?det=gpu to pin the detector's backend,
 // ?det=<ws url> for a detector in another process, ?detsrc=<url> to point
 // the camera and the detector at a still image.
 import { Bridge } from "./bridge.js";
 import { Bars, Strip } from "./charts.js";
-import { Lock, pick, stickMoved, toFrame } from "./lock.js";
+import { Lock, holdsOn, pick, stickMoved, toFrame } from "./lock.js";
 
 // The instruments the telemetry bridge feeds are off unless ?telemetry=on.
 const telemetry = new URLSearchParams(location.search).get("telemetry") === "on";
@@ -56,7 +59,44 @@ function log(text, cls) {
 function setDrive(state) {
   const d = $("drive"), v = $("viewport");
   d.textContent = state === "deadman" ? "dead-man" : state;
-  for (const s of ["idle", "live", "deadman"]) { d.classList.toggle(s, state === s); v.classList.toggle(s, state === s); }
+  for (const s of ["idle", "live", "deadman", "follow"]) { d.classList.toggle(s, state === s); v.classList.toggle(s, state === s); }
+}
+
+// ---- which camera is in the picture ----------------------------------------
+// The gateway serves both on one path: /stream.mjpg?cam=front is the body's
+// colour camera and ?cam=tower is the camera on the gimbal. The panel opens
+// on the tower, because that is the picture the follow chain aims, and falls
+// back to the front camera when no tower frame arrives within a few seconds.
+// A chip is the operator's own choice and ends that fallback for good.
+//
+// A switch drops the lock. The box is pixels of one picture, and the same
+// pixels on the other camera are somewhere else entirely.
+const CAMS = ["front", "tower"];
+const TOWER_PROBE_S = 4;
+let camName = params.get("cam") === "front" ? "front" : "tower";
+let camPicked = CAMS.includes(params.get("cam")) || !!params.get("detsrc");
+let camSince = 0;             // when this picture was asked for
+const streamUrl = () => `/stream.mjpg?cam=${camName}&t=${Date.now()}`;
+function paintCams() {
+  for (const b of document.querySelectorAll("[data-cam]")) {
+    b.classList.toggle("on", b.dataset.cam === camName);
+  }
+}
+function setCam(name, why) {
+  if (!CAMS.includes(name) || name === camName) return;
+  // The rule lock.js holds and the node tests cover: a lock means something
+  // on one picture only.
+  if (lock && !holdsOn(lock, name)) unlock("camera switched");
+  camName = name;
+  det = null;                 // the old picture's boxes mean nothing here
+  camSince = now();
+  paintCams();
+  $("hud-cam-rate").textContent = "—";
+  // The <img> keeps showing the old camera until the new stream's first
+  // frame decodes, so the picture is not this camera's yet: no boxes and
+  // no taps until it is (camLive, below).
+  if (!params.get("detsrc")) { camLive = false; cam.src = streamUrl(); }
+  log(`camera: ${name} (${why})`);
 }
 
 // ---- gateway ---------------------------------------------------------------
@@ -70,7 +110,7 @@ function connectGateway() {
     // away (a restart of the robot service takes it along), so every
     // reconnect points it at the stream afresh. Not when a still image
     // was asked for (?detsrc=).
-    if (!params.get("detsrc")) cam.src = `/stream.mjpg?${Date.now()}`;
+    if (!params.get("detsrc")) { cam.src = streamUrl(); camSince = now(); }
   };
   gw.onclose = () => {
     lamp("link", false); setDrive("idle");
@@ -121,8 +161,15 @@ function onGateway(m) {
   } else if (m.t === "status") {
     height = m.height; $("height").textContent = height.toFixed(3);
     setDrive(m.drive);
-    lamp("cam", m.cam_hz > 0.5, m.cam_hz > 0.5 ? `cam ${m.cam_hz.toFixed(0)}` : "cam —");
-    $("hud-cam").textContent = m.cam_hz > 0.5 ? `fwd cam · ${m.cam_hz.toFixed(0)} fps` : "fwd cam · —";
+    // The rate of the picture on screen, not of both cameras: the gateway
+    // counts each one on its own and subscribes only to a watched camera.
+    const hz = (camName === "tower" ? m.tower_hz : m.cam_hz) || 0;
+    lamp("cam", hz > 0.5, hz > 0.5 ? `cam ${hz.toFixed(0)}` : "cam —");
+    $("hud-cam-rate").textContent = hz > 0.5 ? `${hz.toFixed(0)} fps` : "—";
+    // The robot's own word for whether a lock is armed in the drive gate.
+    // The page draws its own lock from its own state, so the two showing
+    // different things is the sign that a track or an unlock went missing.
+    lamp("follow", !!m.follow);
   }
 }
 
@@ -192,6 +239,15 @@ function startBridge(url) {
 
 // ---- overlay: reticle with heading, horizon, detections -----------------
 const overlay = $("overlay"), cam = $("cam");
+// Whether the picture on screen is the camera camName names. After a switch
+// the browser keeps showing the old camera's last frame until the new
+// stream's first part decodes, a few hundred milliseconds on the robot's
+// wifi. The detector reads the picture off the <img>, so a box found in
+// that window is the old camera's pixels, and a tap on it would start a
+// lock tagged with the new camera on the old picture. Cleared by setCam,
+// set when the new stream's first frame lands; boxes and taps wait for it.
+let camLive = cam.naturalWidth > 0;
+cam.addEventListener("load", () => { camLive = true; });
 function drawOverlay() {
   const dpr = window.devicePixelRatio || 1;
   const W = overlay.clientWidth, H = overlay.clientHeight;
@@ -287,6 +343,7 @@ function drawOverlay() {
 let detRate = 0;             // detections per second, smoothed
 const GPU_DEADLINE_MS = 8000; // first GPU answer must land within this
 function onBoxes(w, h, boxes) {
+  if (!camLive) return;       // the old camera's pixels: not this picture's
   det = { w, h, boxes: boxes || [], at: now() };
   if (lock) lock.update(det.boxes, det.at);
   const people = det.boxes.filter(b => b.label === "person").length;
@@ -310,6 +367,7 @@ function unlock(why) {
 }
 cam.addEventListener("click", e => {
   if (!cam.naturalWidth) return;
+  if (!camLive) { note("camera switching"); return; }
   const r = cam.getBoundingClientRect();
   // The tap in the camera's pixels, then in the detector's frame, which is
   // the camera's frame unless a still image was put in the viewport.
@@ -319,7 +377,7 @@ cam.addEventListener("click", e => {
   const x = p.x * fw / cam.naturalWidth, y = p.y * fh / cam.naturalHeight;
   if (x < 0 || y < 0 || x > fw || y > fh) return;
   if (lock && lock.covers(x, y)) { unlock("released"); return; }
-  lock = new Lock(pick(fresh ? det.boxes : [], x, y, fw, fh), fw, fh, now());
+  lock = new Lock(pick(fresh ? det.boxes : [], x, y, fw, fh), fw, fh, now(), camName);
   lockNote = null;
   log(lock.label ? `lock: ${lock.label}` : "lock: waiting for a box under the tap");
 });
@@ -398,7 +456,7 @@ function startDetector(backend) {
   // Only when the worker has finished the last one, and no faster than
   // 15 Hz, because past that the network is the limit anyway.
   feed = setInterval(() => {
-    if (!ready || !cam.naturalWidth) return;
+    if (!ready || !camLive || !cam.naturalWidth) return;
     ready = false;
     const w = cam.naturalWidth, h = cam.naturalHeight;
     createImageBitmap(cam)
@@ -553,6 +611,11 @@ for (const b of document.querySelectorAll("[data-hold]")) {
   for (const ev of ["pointerup", "pointerleave", "pointercancel"]) b.addEventListener(ev, cancel);
 }
 for (const b of document.querySelectorAll("[data-height]")) b.onclick = () => send({ t: "height", delta: parseFloat(b.dataset.height) });
+// The camera chips. A tap is a choice, so the fallback to the front camera
+// never fires afterwards, in either direction.
+for (const b of document.querySelectorAll("[data-cam]")) {
+  b.onclick = () => { camPicked = true; setCam(b.dataset.cam, "operator"); };
+}
 // Deliberately not data-calls: these two talk to the browser, not the robot.
 document.getElementById("reload").onclick = () => location.reload();
 const fullBtn = document.getElementById("fullscreen");
@@ -576,7 +639,22 @@ setInterval(() => {
   eff.draw();
   drawOverlay();
 }, 33);
-setInterval(() => { $("hud-clock").textContent = stamp(); }, 1000);
+setInterval(() => {
+  $("hud-clock").textContent = stamp();
+  // There may be no tower camera at all. When not one of its frames has
+  // decoded a few seconds after the stream was asked for, the panel falls
+  // back to the front camera and says so once in the log.
+  if (!camPicked && camName === "tower" && !cam.naturalWidth
+      && camSince && now() - camSince > TOWER_PROBE_S) {
+    camPicked = true;
+    setCam("front", "no tower frames");
+  }
+}, 1000);
+
+// index.html opens the <img> on the tower camera; ?cam=front says otherwise.
+paintCams();
+if (!params.get("detsrc") && camName !== "tower") { camLive = false; cam.src = streamUrl(); }
+camSince = now();
 
 connectGateway();
 

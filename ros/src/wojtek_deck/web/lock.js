@@ -18,6 +18,11 @@
 // Boxes are the detector's: {x, y, w, h, label, p}, top-left corner and
 // size in pixels of the camera frame. The lock keeps the frame size it was
 // started in, so the message can say which pixels it means.
+//
+// A lock also keeps the name of the camera it was tapped on. The panel can
+// show the front camera or the tower camera, and the same pixels on the
+// other one point somewhere else entirely, so a lock never crosses from
+// one picture to the other.
 
 export const COAST_S = 0.7;
 export const LOST_S = 3.0;
@@ -85,13 +90,21 @@ export function stickMoved(frame) {
   return !!frame && (frame.vx !== 0 || frame.vy !== 0 || frame.yaw !== 0);
 }
 
+// Whether a lock still means anything on the camera now in the picture.
+// The page reads this on every camera switch and drops a lock that says no.
+export function holdsOn(lock, cam) {
+  return !!lock && lock.cam === cam;
+}
+
 export class Lock {
-  // `box` is what pick() returned; `fw`, `fh` the frame it was picked in.
-  constructor(box, fw, fh, t) {
+  // `box` is what pick() returned; `fw`, `fh` the frame it was picked in;
+  // `cam` the camera that frame came from ("front" or "tower").
+  constructor(box, fw, fh, t, cam) {
     this.box = { x: box.x, y: box.y, w: box.w, h: box.h };
     this.label = box.label;
     this.p = box.p;
     this.fw = fw; this.fh = fh;
+    this.cam = cam || "front";
     this.started = t;
     this.seen = box.label ? t : null;   // last time a detection matched
   }
@@ -148,8 +161,8 @@ export class Lock {
   covers(x, y) { return inside(this.box, x, y); }
 
   // What the robot is told, ten times a second: the box's centre and size,
-  // the frame those pixels belong to, and how stale the match is. Nothing
-  // while waiting or lost.
+  // the frame those pixels belong to, the camera that frame came from, and
+  // how stale the match is. Nothing while waiting or lost.
   message(t) {
     const s = this.state(t);
     if (s === "waiting" || s === "lost") return null;
@@ -161,6 +174,7 @@ export class Lock {
       fw: this.fw, fh: this.fh,
       label: this.label,
       age: Math.round(this.age(t) * 100) / 100,
+      cam: this.cam,
     };
   }
 }
