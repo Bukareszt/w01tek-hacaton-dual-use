@@ -111,6 +111,25 @@ def duty_factor(contacts):
     return [round(float(x), 3) for x in c.mean(axis=0)]
 
 
+def touchdown_speeds(contacts, foot_vz):
+    """Downward foot speed (m/s, >= 0) on the last pre-contact step of
+    every touchdown, all feet pooled, in time order.
+
+    A touchdown is a 0 -> 1 edge in a foot's contact flag; its speed is
+    read one step BEFORE the edge, where the foot is still free and the
+    solver has not yet absorbed the impact (the same reading the env's
+    feet_landing charge prices). This is the "walenie" measurement: the
+    report's foot-force proxy is a single body-acceleration peak and
+    noisy, this is a distribution over hundreds of steps.
+    """
+    c = np.asarray(contacts, dtype=bool)
+    vz = np.asarray(foot_vz, dtype=float)
+    if c.ndim != 2 or c.shape[0] < 2 or vz.shape != c.shape:
+        return np.zeros((0,), dtype=float)
+    edge = (~c[:-1]) & c[1:]  # True at t where foot lands between t and t+1
+    return np.clip(-vz[:-1][edge], 0.0, None)
+
+
 def _yaw(quat):
     """Yaw (rad) of a wxyz quaternion."""
     w, x, y, z = quat
@@ -382,7 +401,7 @@ def rollout(env, reset, step, inf, cmd_at, n, seed=0):
         "cmd_wz": [], "wz": [], "cmd_h": [], "h": [],
         "qvel": [], "qpos": [], "contact": [], "foot_clearance": [],
         "slip": [], "actuator_force": [], "base_accel": [], "ctrl": [],
-        "gravity": [], "foot_xy_body": [],
+        "gravity": [], "foot_xy_body": [], "foot_vz": [],
     }
     fell_at = None
     term = None
@@ -421,6 +440,8 @@ def rollout(env, reset, step, inf, cmd_at, n, seed=0):
         rec["contact"].append(c)
         rec["foot_clearance"].append(np.asarray(env._foot_clearance(d)))
         rec["slip"].append(float((np.square(fv[:, :2]).sum(-1) * c).sum()))
+        # Vertical foot speed per foot, for the touchdown-speed metric.
+        rec["foot_vz"].append(np.asarray(fv[:, 2]))
         rec["actuator_force"].append(np.asarray(d.actuator_force))
         rec["base_accel"].append(np.asarray(d.sensordata[adr : adr + 3]))
         rec["ctrl"].append(np.asarray(d.ctrl))
@@ -462,6 +483,15 @@ def scenario_result(name, rec, fell_at, dt, torque_cap):
     # nearly motionless (tiny numerator over tiny denominator)
     r["qvel_rms"] = round(float(np.sqrt((rec["qvel"] ** 2).mean())), 3)
     r["slip_mean"] = round(float(rec["slip"].mean()), 4)
+    # Touchdown speed over the whole scenario (every scenario steps
+    # somewhere; strafe and turn have no moving window). p90 is the
+    # "walenie" number the quiet family was judged on (td_p90).
+    if "foot_vz" in rec:
+        td = touchdown_speeds(rec["contact"], rec["foot_vz"])
+        r["td_count"] = int(td.size)
+        if td.size:
+            r["td_p50"] = round(float(np.percentile(td, 50)), 3)
+            r["td_p90"] = round(float(np.percentile(td, 90)), 3)
     if "ctrl" in rec:
         te = tracking_error(rec["ctrl"], rec["qpos"])
         if te["rms"] is not None:
