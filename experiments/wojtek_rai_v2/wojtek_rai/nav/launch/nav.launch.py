@@ -50,6 +50,22 @@ SLAM_REAL_OVERRIDES = {"transform_publish_period": 0.02, "use_scan_matching": Tr
 # brought up in real mode.
 PREFLIGHT_CMD = ["python3", "-m", "wojtek_rai.nav.preflight"]
 
+WATCHDOG_CMD = ["python3", "-m", "wojtek_rai.nav.cmd_vel_watchdog"]
+# Only the real target bursts zero Twists when the robot's heartbeat comes
+# back: over the AP the reader on the RPi is re-matched still holding the
+# last command that got through (cmd_vel_watchdog.py). In the sim there is no
+# link to lose, and the burst would only fight whatever else writes /cmd_vel.
+STOP_BURST_BY_TARGET = {"sim": False, "real": True}
+
+
+def _watchdog(burst: bool, condition) -> ExecuteProcess:
+    return ExecuteProcess(
+        cmd=[*WATCHDOG_CMD, "--ros-args", "-p", f"stop_burst_on_reconnect:={str(burst).lower()}"],
+        cwd="/exp",
+        output="screen",
+        condition=condition,
+    )
+
 
 def _lifecycle_manager(name: str, node_names: list[str], common: dict, condition, **extra) -> Node:
     return Node(
@@ -119,9 +135,8 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         condition=IfCondition(is_sim),
     )
-    watchdog = ExecuteProcess(
-        cmd=["python3", "-m", "wojtek_rai.nav.cmd_vel_watchdog"], cwd="/exp", output="screen"
-    )
+    watchdog_sim = _watchdog(STOP_BURST_BY_TARGET["sim"], IfCondition(is_sim))
+    watchdog_real = _watchdog(STOP_BURST_BY_TARGET["real"], IfCondition(is_real))
 
     # slam_toolbox is a lifecycle node in Jazzy: it does nothing until a
     # lifecycle manager configures and activates it.
@@ -263,7 +278,8 @@ def generate_launch_description() -> LaunchDescription:
             depth_to_cloud,
             depth_to_scan,
             odom_relay,
-            watchdog,
+            watchdog_sim,
+            watchdog_real,
             slam_node_sim,
             slam_node_real,
             slam_manager,
