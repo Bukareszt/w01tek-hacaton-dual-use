@@ -68,6 +68,16 @@ The pad is read in the browser (Gamepad API), the same mapping as
 `wojtek_teleop/gamepad_teleop.py`. Buttons on the page cover the same
 services for a touchscreen.
 
+Three of those buttons only exist against the simulation, where the sim
+launch runs `wojtek_pc sim_approach --serve`: **intercept** walks the robot
+to the nearest configured intruder and stops a standoff short of it, facing
+it, **halt** ends that walk where the robot stands, and **return** walks
+back to the spawn, stops 0.4 m short and turns in place to the boot
+heading, so an intercept can be run again without restarting the
+simulation. On the robot all three stay disabled — the services behind
+them do not exist there, and the page greys out a button whose service
+does not answer.
+
 On a Steam Deck the pad only reaches the browser one of two ways. With
 Steam running, Steam owns the controller and the desktop gets Steam's
 "desktop" layout, which is a mouse and a keyboard, not a pad; the browser

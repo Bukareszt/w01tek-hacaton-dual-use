@@ -17,11 +17,14 @@ text_commander use, and the last message of a run is a zero Twist because
 the policy latches whatever it heard last. Between runs it publishes
 nothing, so the pad keeps the wheel.
 
-In `--serve` mode two Trigger services carry the panel's buttons:
-/wojtek/intercept walks to the nearest of the configured targets, and
-/wojtek/intercept_stop ends the run where the robot stands. The deck
-gateway lists both among its trigger services; on the physical robot they
-do not exist, so the panel's buttons stay disabled there.
+In `--serve` mode three Trigger services carry the panel's buttons:
+/wojtek/intercept walks to the nearest of the configured targets,
+/wojtek/intercept_stop ends the run where the robot stands, and
+/wojtek/intercept_home walks back to the spawn (0, 0), stops 0.4 m short
+of it and turns in place to the boot heading, so the operator can run an
+intercept again without restarting the simulation. The deck gateway lists
+all three among its trigger services; on the physical robot they do not
+exist, so the panel's buttons stay disabled there.
 
 It is open-loop about everything but the pose: no obstacle check, no depth,
 no detector. The point is a robot that visibly turns, walks and stops at a
@@ -42,24 +45,14 @@ from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Float64MultiArray
 from std_srvs.srv import Trigger
 
+from wojtek_pc.approach_math import nearest, settle_command, wrap, yaw_of
 
-def yaw_of(qw, qx, qy, qz):
-    """Heading about +z of a w-first quaternion."""
-    return math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-
-
-def wrap(a):
-    return (a + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def nearest(targets, x, y):
-    """The target closest to (x, y), or None when there is none."""
-    best = None
-    for t in targets:
-        d = math.hypot(t["x"] - x, t["y"] - y)
-        if best is None or d < best[0]:
-            best = (d, t)
-    return None if best is None else best[1]
+# Where the plant spawns the robot and how it is turned there: the "return"
+# button's goal. Standing on the spawn itself would push the walk past it,
+# so home keeps a short standoff and then turns to the boot heading.
+HOME_X, HOME_Y = 0.0, 0.0
+HOME_STANDOFF = 0.4
+HOME_YAW = 0.0
 
 
 class Gains:
@@ -79,6 +72,8 @@ class Approach(Node):
         self.g = gains
         self.pose = None
         self.goal = None          # (x, y, name) while a run is on
+        self.run_standoff = gains.standoff   # this run's standoff
+        self.final_yaw = None     # heading to settle on, when the run wants one
         self.state = "IDLE"
         self.t0 = 0.0
         self.serve = serve
@@ -91,12 +86,22 @@ class Approach(Node):
         if serve:
             self.create_service(Trigger, "wojtek/intercept", self._srv_intercept)
             self.create_service(Trigger, "wojtek/intercept_stop", self._srv_stop)
+            self.create_service(Trigger, "wojtek/intercept_home", self._srv_home)
             names = ", ".join(t["name"] for t in self.targets) or "none"
             self.get_logger().info(f"serving /wojtek/intercept; targets: {names}")
 
     # ---- goals ----------------------------------------------------------
-    def start(self, x, y, name="target"):
+    def start(self, x, y, name="target", standoff=None, final_yaw=None):
+        """Walk at (x, y).
+
+        `standoff` overrides the configured one for this run only, and
+        `final_yaw` (a world heading, rad) asks for a turn in place to that
+        heading once the robot is inside the standoff. Both default to the
+        plain intercept behaviour: the configured standoff, no final heading.
+        """
         self.goal = (x, y, name)
+        self.run_standoff = self.g.standoff if standoff is None else standoff
+        self.final_yaw = final_yaw
         self.t0 = time.monotonic()
         self.state = "START"
 
@@ -104,6 +109,7 @@ class Approach(Node):
         if self.goal is not None:
             self.get_logger().info(f"{why}")
         self.goal = None
+        self.final_yaw = None
         self.state = "IDLE"
         for _ in range(3):
             self.pub.publish(Twist())
@@ -119,6 +125,16 @@ class Approach(Node):
         self.start(t["x"], t["y"], t["name"])
         d = math.hypot(t["x"] - self.pose[0], t["y"] - self.pose[1])
         res.success, res.message = True, f"walking to {t['name']}, {d:.1f} m"
+        return res
+
+    def _srv_home(self, _req, res):
+        if self.pose is None:
+            res.success, res.message = False, "no /sim/qpos yet"
+            return res
+        self.start(HOME_X, HOME_Y, "home",
+                   standoff=HOME_STANDOFF, final_yaw=HOME_YAW)
+        d = math.hypot(HOME_X - self.pose[0], HOME_Y - self.pose[1])
+        res.success, res.message = True, f"returning to the spawn, {d:.1f} m"
         return res
 
     def _srv_stop(self, _req, res):
@@ -157,18 +173,31 @@ class Approach(Node):
         dx, dy = tx - x, ty - y
         dist = math.hypot(dx, dy)
         err = wrap(math.atan2(dy, dx) - yaw)
+        standoff = self.run_standoff
         cmd = Twist()
-        if dist <= g.standoff and abs(err) < g.face_tol:
+        if self.final_yaw is not None and dist <= standoff:
+            # Close enough: the run's own heading replaces the bearing to the
+            # goal, which is meaningless once the robot stands on top of it.
+            ferr = wrap(self.final_yaw - yaw)
+            if abs(ferr) < g.face_tol:
+                self.stop(f"ARRIVED at {name}, facing "
+                          f"{math.degrees(self.final_yaw):.0f} deg")
+                if not self.serve:
+                    raise SystemExit(0)
+                return
+            self._say("SETTLE", f"heading error {math.degrees(ferr):+.0f} deg")
+            cmd.angular.z = settle_command(ferr, g.yaw_min, g.yaw_max)
+            self.pub.publish(cmd)
+            return
+        if dist <= standoff and abs(err) < g.face_tol:
             self.stop(f"ARRIVED {dist:.2f} m from {name}")
             if not self.serve:
                 raise SystemExit(0)
             return
         if abs(err) > g.align_tol and self.state != "APPROACH":
             self._say("ALIGN", f"bearing error {math.degrees(err):+.0f} deg")
-            # The gait barely turns below ~0.2 rad/s, so ask for at least
-            # yaw_min, in the right direction.
-            cmd.angular.z = math.copysign(max(g.yaw_min, min(g.yaw_max, abs(err))), err)
-        elif dist > g.standoff:
+            cmd.angular.z = settle_command(err, g.yaw_min, g.yaw_max)
+        elif dist > standoff:
             self._say("APPROACH", f"{dist:.1f} m to {name}")
             cmd.linear.x = g.speed
             # Steer while walking, gently; a strong turn stalls the walk.
@@ -177,7 +206,7 @@ class Approach(Node):
                 self.state = "REALIGN"  # go back through ALIGN next tick
         else:
             self._say("FACE", f"bearing error {math.degrees(err):+.0f} deg")
-            cmd.angular.z = math.copysign(max(g.yaw_min, min(g.yaw_max, abs(err))), err)
+            cmd.angular.z = settle_command(err, g.yaw_min, g.yaw_max)
         self.pub.publish(cmd)
 
 

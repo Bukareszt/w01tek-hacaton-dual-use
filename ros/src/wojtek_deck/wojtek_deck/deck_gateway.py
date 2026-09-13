@@ -115,7 +115,7 @@ TRIGGER_SERVICES = ("zero", "stand_up", "lie_down", "reset",
                     # The simulation's scripted walk to the nearest intruder
                     # (wojtek_pc sim_approach --serve). The robot has no such
                     # service, so there the panel's buttons stay disabled.
-                    "intercept", "intercept_stop")
+                    "intercept", "intercept_stop", "intercept_home")
 
 
 def assets_store():
