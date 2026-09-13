@@ -86,31 +86,34 @@ left (+y), behind a low kerb and a row of bollards; shipping containers stack
 up on its right (-y), with crates between them, a boat moored in the water and
 a gantry crane in the distance.
 
-The six props the detector was picked for stand exactly where they stood, so
-the range table below still holds; the dock is scenery around them.
+On the quay stands a cast for the detector: dock workers, people who should not
+be there, and drones overhead. The dock is scenery around them.
 
-| prop          | where it stands   | the panel names it from        |
-| ------------- | ----------------- | ------------------------------ |
-| sports ball   | ahead and left    | 1 to 3 m                       |
-| fire hydrant  | ahead and right   | 1 to 3 m (best inside 2 m)     |
-| stop sign     | left, turn ~55°   | 1 to 3 m (best inside 2 m)     |
-| traffic light | right, turn ~75°  | 1.5 to 3 m (too tall closer)   |
-| clock         | behind, turn ~160°| 1 to 3 m                       |
-| person        | straight ahead    | 5.5 m and further              |
+| who | where from the spawn | what the panel can say about it |
+| --- | -------------------- | ------------------------------- |
+| 3 dock workers, orange hi-vis and helmet | ahead 6.5 m; 7.1 m at ~29° left; 8.4 m at ~17° right | `person` |
+| 2 unauthorized people, dark clothes, no helmet | 9.8 m at ~15° left; 7.3 m at ~35° right | `person` |
+| 3 drones, 1.65 to 2.5 m up | 7.9 m at ~8° left; 10.4 m at ~16° left; 8 m at ~24° right | `airplane`, `bird`, `kite` — or nothing |
 
-The props were picked by rendering the camera view and asking the panel's
-own YOLOX-nano what it saw; every one that stayed is named with better than
-even confidence over the range above, mostly 0.8 to 0.95. They are short
-because the camera sits 0.21 m off the floor looking 15° down — at two
-metres the top of the picture is only 0.75 m up — and the person stands far
-back for the same reason: from two metres away a person is a pair of legs
-and reads as nobody.
+That third column is the point of the cast, and it is not a bug. The panel runs
+YOLOX-nano over COCO's 80 classes, and COCO has no `helmet`, no `vest` and no
+`drone`: every figure on the quay comes back as `person`, and a drone gets
+whatever flying class the net can least badly fit, if it clears the confidence
+threshold at all. Telling a worker's hi-vis from an intruder's hoodie is
+open-vocabulary work — GroundingDINO, the RAI agent's VLM — and the panel's box
+labels will never do it. The panel proves the camera and the detector path run;
+the judgement sits one layer up.
 
-The plant loads the same file, so the props are solid and the robot bumps
-into them. They are static bodies, so `/sim/qpos` has exactly the layout it
-had before and neither the policy nor the training model knows they exist.
-Their pictures are drawn by `config/props/make_textures.py`, committed next
-to it; run it only when you want a sign to look different. To walk the empty
+Everyone stands 5 m or more out because the camera sits 0.21 m off the floor
+looking 15° down: at two metres the top of the picture is only 0.75 m up, so a
+person close by is a pair of legs and reads as nobody.
+
+The plant loads the same file, so the people are solid and the robot bumps into
+them; the drones hover and collide with nothing, because nothing holds them up.
+They are all static bodies, so `/sim/qpos` has exactly the layout it had before
+and neither the policy nor the training model knows they exist. The dock's
+surface pictures are drawn by `config/props/make_textures.py`, committed next
+to it; run it only when you want a surface to look different. To walk the empty
 floor again, hand the launch the old scene:
 
 ```bash

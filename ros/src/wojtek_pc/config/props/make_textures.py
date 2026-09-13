@@ -5,7 +5,9 @@ Most props in scene_sim.xml are plain coloured shapes, because a plain coloured
 shape is all the detector needs to name a fire hydrant or a traffic light. Some
 of them are not. A stop sign is a stop sign because it says STOP, and a clock is
 a clock because it has numbers and hands; those two need a picture, and this is
-where the pictures come from.
+where the pictures come from. The scene no longer carries either sign -- its
+cast is dock workers, unauthorized people and drones -- but stop_sign.png and
+clock.png stay here for now.
 
 The harbour dock needs pictures for a second reason: its surfaces are large, the
 camera sits 0.2 m above the quay, and a flat fill at that distance looks like
