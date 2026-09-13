@@ -111,7 +111,11 @@ LYING_MAX_RAD = 0.35
 
 SETBOOL_SERVICES = ("arm", "enable")
 TRIGGER_SERVICES = ("zero", "stand_up", "lie_down", "reset",
-                    "trick_paw_wave", "trick_bow", "trick_sit", "trick_shake")
+                    "trick_paw_wave", "trick_bow", "trick_sit", "trick_shake",
+                    # The simulation's scripted walk to the nearest intruder
+                    # (wojtek_pc sim_approach --serve). The robot has no such
+                    # service, so there the panel's buttons stay disabled.
+                    "intercept", "intercept_stop")
 
 
 def assets_store():

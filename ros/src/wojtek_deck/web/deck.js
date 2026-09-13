@@ -190,6 +190,7 @@ function drawOverlay() {
   // white at two strengths for everything that just sits there, and the
   // one accent for the thing worth looking at.
   const dim = css("--on-image-2"), faint = css("--on-image-3"), accent = css("--accent-image"), mono = css("--mono");
+  const okCol = css("--ok-image"), warnCol = css("--warn-image");
   const [roll, pitch, yaw] = rpy;
   const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.2;
 
@@ -226,11 +227,24 @@ function drawOverlay() {
   ctx.textAlign = "start"; ctx.font = `10px ${mono}`;
   for (const b of det.boxes) {
     const x = ox + b.x * sx, y = oy + b.y * sy, w = b.w * sx, h = b.h * sy;
-    const person = b.label === "person";
-    ctx.strokeStyle = person ? accent : dim; ctx.lineWidth = 1.5;
+    // The box is drawn for what the triage made of it, not for its COCO
+    // label: green for a worker who belongs here, red for a person the
+    // vest rule could not place, amber for a drone. Anything the triage
+    // left alone -- a crate, a truck -- stays dim, as it always was.
+    const kind = boxKind(b);
+    const col = kind === "worker" ? okCol : kind === "unknown" ? accent
+      : kind === "drone" ? warnCol : dim;
+    // A drone the network never saw, found as a dark blob in the sky, is
+    // drawn dashed and without a number: its 0.5 is a placeholder, and
+    // printing it would read as a measurement.
+    const guess = b.via === "sky";
+    ctx.strokeStyle = col;
+    ctx.lineWidth = kind === "unknown" || kind === "drone" ? 2 : 1.5;
+    ctx.setLineDash(guess ? [4, 3] : []);
     ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = person ? accent : dim;
-    ctx.fillText(`${b.label} ${(b.p * 100).toFixed(0)}`.toUpperCase(), x, y - 5);
+    ctx.setLineDash([]);
+    ctx.fillStyle = col;
+    ctx.fillText(guess ? "DRONE" : `${kind} ${(b.p * 100).toFixed(0)}`.toUpperCase(), x, y - 5);
   }
 }
 
@@ -240,11 +254,24 @@ function drawOverlay() {
 // the machine with a GPU to spare.
 let detRate = 0;             // detections per second, smoothed
 const GPU_DEADLINE_MS = 8000; // first GPU answer must land within this
+// What a box is, in one word. The in-page detector triages every box and
+// sends a kind; a detector somewhere else (?det=ws://...) may not, and then
+// the COCO label is the word and the box counts as nothing to worry about.
+const boxKind = b => b.kind || b.label;
+const boxOk = b => (b.kind ? b.ok : true);
 function onBoxes(w, h, boxes) {
   det = { w, h, boxes: boxes || [], at: now() };
-  const people = det.boxes.filter(b => b.label === "person").length;
-  $("hud-det").textContent = `${det.boxes.length} objects · ${people} people`;
-  $("hud-det").classList.toggle("on", people > 0);
+  // The HUD says who is in the picture, not how many boxes there are: the
+  // count that matters is people the vest rule could not place and drones.
+  const n = { worker: 0, unknown: 0, drone: 0 };
+  for (const b of det.boxes) { const k = boxKind(b); if (k in n) n[k]++; }
+  const parts = ["worker", "unknown", "drone"]
+    .filter(k => n[k] > 0)
+    .map(k => `${n[k]} ${k}${n[k] === 1 ? "" : "s"}`);
+  $("hud-det").textContent = parts.length ? parts.join(" · ") : "no one";
+  // Lit when something in the picture is not ok -- an unplaced person or a
+  // drone. A dock full of workers is the normal day and does not light it.
+  $("hud-det").classList.toggle("on", det.boxes.some(b => !boxOk(b)));
 }
 
 function startDetector(backend) {
@@ -341,13 +368,17 @@ function shape(v) {
 // walking pace in a room. The right trigger adds the other half in
 // proportion to how far it is pulled, so full pull is the full box. On a
 // keyboard Shift is the trigger.
-const SLOW = 0.5;
+// ?speed=100 starts the sticks at the full box (any percentage works), for
+// a session where the operator wants pace from the first stick, or a
+// scripted drive that the panel should read as full speed.
+const SLOW = Math.max(0.1, Math.min(1, (Number(new URL(location.href).searchParams.get("speed")) || 50) / 100));
 let scale = SLOW;
 function speedScale(turbo) {
   scale = SLOW + (1 - SLOW) * Math.max(0, Math.min(1, turbo));
   $("scale").textContent = Math.round(scale * 100);
   return scale;
 }
+speedScale(0);
 let padIndex = null, padPrev = {}, padButtons = null;
 // Button numbers in the browser's "standard" layout (A B X Y, bumpers, d-pad).
 const STANDARD_BUTTONS = { 0: "arm", 1: "lie_down", 3: "stand_up", 4: "h-", 5: "h+",

@@ -1,15 +1,29 @@
 # Named places the agent can navigate to, in the map frame. The sim map's
-# origin is where the robot booted (0, 0, yaw 0), so these are the prop
-# positions from ros/src/wojtek_pc/config/scene_sim.xml pulled back by
+# origin is where the robot booted (0, 0, yaw 0), so these are the positions
+# of the cast in ros/src/wojtek_pc/config/scene_sim.xml -- the dock workers,
+# the unauthorized people and the dock's own furniture -- pulled back by
 # `standoff` metres towards the origin, i.e. "in front of" the object.
-# Facing (yaw) points at the object.
+# Facing (yaw) points at the object. The drones are not places: they hover
+# about two metres up and the robot has nowhere to stand in front of them.
 frame: map
 standoff: 0.6
 places:
-  ball:          {x: 1.60, y:  0.58}
-  hydrant:       {x: 2.10, y: -1.30}
-  traffic_light: {x: 0.90, y: -3.10}
-  stop_sign:     {x: 1.72, y:  2.46}
-  clock:         {x: -2.35, y: 0.86}
-  person:        {x: 6.48, y:  0.57}
-  home:          {x: 0.0,  y:  0.0, standoff: 0.0, yaw: 0.0}
+  # The three workers in orange hi-vis, out on the quay.
+  worker_1:   {x: 6.5, y:  0.6}
+  worker_2:   {x: 6.2, y:  3.5}
+  worker_3:   {x: 8.0, y: -2.4}
+  # The two in plain dark clothes and no helmet. worker/intruder is the VLM's
+  # call, not the panel's; these are only the spots they stand on.
+  # intruder_1 is the far one: 0.6 m back towards the origin puts the robot at
+  # about (8.92, 2.44), still inside the kerb line at y = 3.85.
+  intruder_1: {x: 9.5, y:  2.6}
+  intruder_2: {x: 6.0, y: -4.2}
+  # The dock itself. The containers are a wall, so there is no standing next
+  # to their centre: this spot is 0.2 m off the red container's near face
+  # (y = -4.8), turned to look at it.
+  containers: {x: 2.0, y: -4.6, standoff: 0.0, yaw: -1.5708}
+  crates:     {x: 4.2, y:  1.6}
+  # The boat floats past the quay edge, so the place to see it from is the
+  # kerb at y = 3.85, facing the water.
+  boat:       {x: 4.0, y:  3.3, standoff: 0.0, yaw: 1.5708}
+  home:       {x: 0.0, y:  0.0, standoff: 0.0, yaw: 0.0}

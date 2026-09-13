@@ -19,6 +19,9 @@
 // Messages out
 //   {t: "ready"}              send the next frame now
 //   {t: "det", w, h, boxes, ms, backend}   backend is "gpu" or "cpu"
+//                             every box carries kind ("worker", "unknown",
+//                             "drone", else the COCO label) and ok, from
+//                             triage.js
 //   {t: "missing"}            the assets are not on the robot
 //   {t: "error", msg}         anything else went wrong
 //   {t: "log", msg}           worth a line in the panel's log, not a failure
@@ -28,6 +31,7 @@
 // worker saying it has caught up.
 import * as ort from "/det/ort.webgpu.min.mjs";
 import { letterboxScale, postprocess } from "./yolox.js";
+import { triage, skyDrones } from "./triage.js";
 
 let cfg = null, session = null, backend = "";
 const wanted = new URL(self.location.href).searchParams.get("backend") || "auto";
@@ -41,8 +45,12 @@ let canvas = null, ctx = null, input = 0;
 // YOLOX was trained on images read by OpenCV, which reads blue first, and
 // on raw 0-255 values with no rescaling (the version that divided by a mean
 // and a deviation is older than this model).
+//
+// The RGBA pixels go back out with the tensor: triage.js reads the colour of
+// a chest and the sky around a blob out of this very canvas, so it wants the
+// same square the network saw, and reading it twice would cost another frame.
 function preprocess(bmp) {
-  const r = Math.min(input / bmp.width, input / bmp.height);
+  const { scale: r } = letterboxScale(bmp.width, bmp.height, input);
   ctx.fillStyle = `rgb(${cfg.pad},${cfg.pad},${cfg.pad})`;
   ctx.fillRect(0, 0, input, input);
   ctx.drawImage(bmp, 0, 0, Math.round(bmp.width * r), Math.round(bmp.height * r));
@@ -54,7 +62,7 @@ function preprocess(bmp) {
     data[n + i] = px[i * 4 + 1];      // green
     data[2 * n + i] = px[i * 4];      // red
   }
-  return new ort.Tensor("float32", data, [1, 3, input, input]);
+  return { tensor: new ort.Tensor("float32", data, [1, 3, input, input]), px, r };
 }
 
 async function load() {
@@ -108,12 +116,16 @@ async function load() {
 
 async function detect(bmp, w, h) {
   const t0 = performance.now();
-  const tensor = preprocess(bmp);
+  const { tensor, px, r } = preprocess(bmp);
   bmp.close();
   const out = await session.run({ [session.inputNames[0]]: tensor });
-  const raw = out[session.outputNames[0]].data;
-  const { scale } = letterboxScale(w, h, input);
-  const boxes = postprocess(raw, cfg, scale, { w, h });
+  const raw = postprocess(out[session.outputNames[0]].data, cfg, r, { w, h });
+  // COCO has no vest, no helmet and no drone, so the boxes are sorted here:
+  // triage() calls every person a worker or an unknown by the colour of the
+  // chest and turns airplane/bird/kite into a drone, then skyDrones() adds
+  // the small dark things in the sky the network missed.
+  let boxes = triage(raw, px, input, r);
+  boxes = boxes.concat(skyDrones(px, input, r, w, h, boxes));
   self.postMessage({
     t: "det", w, h, boxes, backend,
     ms: performance.now() - t0,

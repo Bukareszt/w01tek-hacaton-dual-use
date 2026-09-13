@@ -80,8 +80,10 @@ log line at connect says which one the page got.
 ## Detection
 
 The panel finds objects in the camera picture and draws a box around each
-one: the accent red for a person, plain white for everything else. It is on
-by default and needs nothing running anywhere else.
+one, coloured by what the box is taken to be: green for a dock worker,
+the accent red for a person it cannot place, amber for a drone, plain white
+for everything else. It is on by default and needs nothing running anywhere
+else.
 
 It runs **in the page**, on the handheld. YOLOX-nano goes through
 onnxruntime-web in a worker (`det_worker.js`), on the GPU through WebGPU
@@ -98,6 +100,42 @@ the CPU. The page asks for a frame at most every 66 ms, so both keep up.
 boxes, throwing away the duplicates, scaling back to the camera's pixels —
 so it can be tested from node. `yolox.json` holds the settings and the class
 names.
+
+### Triage
+
+The network is YOLOX trained on COCO, and COCO has no vest, no helmet and no
+drone in it. All it ever says about a person is "person". So the boxes are
+sorted afterwards, in `triage.js`, into three words the operator can act on:
+
+- **worker** — a person wearing hi-vis. A dock worker in a vest and a
+  helmet, where they are supposed to be.
+- **unknown** — a person without it. Nothing is claimed beyond that: the
+  vest rule did not fire, so somebody is in the picture who is not dressed
+  for the dock.
+- **drone** — a quadcopter. COCO's aeroplane, bird and kite all become this,
+  because from below they are the classes the network reaches for.
+
+Two rules do the sorting, both on the pixels the worker already has. The
+first reads the colour of the chest of every "person" box: enough hi-vis
+orange there and it is a worker, otherwise unknown. The second looks for the
+drones the network misses entirely — small dark blobs with sky all around
+them — and adds a box for each.
+
+Both are colour rules, and colour rules are wrong sometimes. A real vest in
+shadow reads as dull cloth and turns a worker into an unknown; a yellow
+raincoat or a bright orange jacket turns a passer-by into a worker. The sky
+rule wants what it was written for: a clear sky and small dark things
+against it. Point the robot at a real harbour and it will box a bird, a
+gull on a bollard, the tip of a crane. It is here for the simulated dock and
+for daylight tests, and it is a hint on a screen for a person to read — not
+a judgement, and nothing downstream acts on it.
+
+Every box the worker sends now carries `kind` (the word above, or the COCO
+label when the triage left it alone) and `ok` (true for a worker, false for
+an unknown or a drone). The top band counts them — "2 workers · 1 unknown ·
+3 drones" — and lights up when anything is not ok. A detector somewhere else
+(below) has to send `kind` itself; a box without one is drawn and counted
+under its plain label, and counts as nothing to worry about.
 
 ### The assets
 

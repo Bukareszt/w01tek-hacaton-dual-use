@@ -34,6 +34,11 @@
   --on-image-2: rgba(255, 255, 255, .72);
   --on-image-3: rgba(255, 255, 255, .55);
   --accent-image: var(--red-soft);
+  /* two more for the detection boxes only: a triaged box says worker,
+     unknown or drone, and three states cannot be told apart in white
+     and one red. Both are picked to read on a photograph. */
+  --ok-image: rgba(110, 210, 120, .95);
+  --warn-image: rgba(255, 190, 60, .95);
   /* hairlines, and the one ink scrim every group sits on -- both flat */
   --line-image: rgba(255, 255, 255, .26);
   --line-image-2: rgba(255, 255, 255, .14);
@@ -278,6 +283,8 @@ button.hold.holding {
 }
 /* Armed: the red fill. */
 button.armed { background: var(--red); border-color: var(--red); color: #fff; min-width: 100px; }
+/* the one button that sends the robot somewhere on its own */
+button.alert:not(:disabled) { border-color: var(--red); color: var(--red-soft); }
 button.armed:hover:not(:disabled) { background: var(--red-deep); border-color: var(--red-deep); color: #fff; }
 
 /* The panel is drawn for the handheld's 1280 wide screen. On anything
