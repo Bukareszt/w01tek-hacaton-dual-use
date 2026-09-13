@@ -368,13 +368,17 @@ function shape(v) {
 // walking pace in a room. The right trigger adds the other half in
 // proportion to how far it is pulled, so full pull is the full box. On a
 // keyboard Shift is the trigger.
-const SLOW = 0.5;
+// ?speed=100 starts the sticks at the full box (any percentage works), for
+// a session where the operator wants pace from the first stick, or a
+// scripted drive that the panel should read as full speed.
+const SLOW = Math.max(0.1, Math.min(1, (Number(new URL(location.href).searchParams.get("speed")) || 50) / 100));
 let scale = SLOW;
 function speedScale(turbo) {
   scale = SLOW + (1 - SLOW) * Math.max(0, Math.min(1, turbo));
   $("scale").textContent = Math.round(scale * 100);
   return scale;
 }
+speedScale(0);
 let padIndex = null, padPrev = {}, padButtons = null;
 // Button numbers in the browser's "standard" layout (A B X Y, bumpers, d-pad).
 const STANDARD_BUTTONS = { 0: "arm", 1: "lie_down", 3: "stand_up", 4: "h-", 5: "h+",
