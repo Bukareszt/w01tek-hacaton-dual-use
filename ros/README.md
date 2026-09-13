@@ -80,8 +80,14 @@ YOLOX in the browser on the handheld rather than on the robot; that needs
 **Things to look at** — the simulated world is not an empty floor. The
 training scene is a checkerboard plane and nothing else, which is what a
 walking policy needs and gives the panel's detector nothing to find, so the
-simulation loads `src/wojtek_pc/config/scene_sim.xml`: the same scene plus a
-few props standing around the spawn.
+simulation loads `src/wojtek_pc/config/scene_sim.xml`: the same scene dressed
+as a harbour dock. The robot spawns on a concrete quay. The water is on its
+left (+y), behind a low kerb and a row of bollards; shipping containers stack
+up on its right (-y), with crates between them, a boat moored in the water and
+a gantry crane in the distance.
+
+The six props the detector was picked for stand exactly where they stood, so
+the range table below still holds; the dock is scenery around them.
 
 | prop          | where it stands   | the panel names it from        |
 | ------------- | ----------------- | ------------------------------ |

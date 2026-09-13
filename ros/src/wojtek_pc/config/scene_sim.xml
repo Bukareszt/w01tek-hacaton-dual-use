@@ -1,5 +1,5 @@
 <!--
-  The simulation's world: the training scene plus a few things to look at.
+  The simulation's world: a harbour dock built around the training scene.
 
   scene_mjx.xml is an empty checkerboard floor, which is what a walking
   policy needs and nothing else. The deck panel runs an object detector on
@@ -9,6 +9,14 @@
   in the distance. Each one was chosen by rendering it and asking the panel's
   own YOLOX-nano what it saw; the ones that survived are named confidently
   from one to three metres away (the person from about five).
+
+  Around those props the world is a harbour dock: a concrete quay with the
+  water on the +y side, a kerb and mooring bollards along that edge, a row of
+  shipping containers on the -y side, a few wooden crates, a moored boat and a
+  gantry crane in the distance. The props keep the exact positions they had on
+  the bare floor, because other code refers to them by those coordinates, so
+  the dock is laid out around them: nothing was moved, renamed or restyled to
+  make room for it.
 
   This is the file BOTH halves of the simulation load -- the physics plugin
   inside ros2_control and the camera node that draws the picture -- so the
@@ -23,6 +31,14 @@
   giving its body a yaw of atan2(-y, -x). The two signs wear a picture from
   props/ (see props/make_textures.py); everything else is plain colour, which
   is all the detector needs.
+
+  The dock is scenery, so it is cheap. Everything the robot could walk off or
+  bump into -- the kerb, the bollards, the containers, the crates -- is one
+  solid box or cylinder; the quay surface, the water, the boat, the crane and
+  the ropes are visual only, so the contact list stays about as short as it
+  was. The quay surface in particular is a 6 mm slab laid 4 mm into the floor:
+  it draws over the checkerboard, but the feet still stand on the training
+  plane at z=0, which is the surface the policy was trained on.
 
   Heights are not free. The camera sits about 0.21 m off the floor and looks
   15 degrees down, so at two metres the top of the picture is only 0.75 m up
@@ -64,6 +80,32 @@
     <material name="prop_hair" rgba="0.22 0.16 0.12 1"/>
     <material name="prop_shirt" rgba="0.30 0.42 0.72 1"/>
     <material name="prop_trousers" rgba="0.2 0.2 0.25 1"/>
+    <!-- The dock's four pictures (props/make_textures.py writes them next to
+         the sign faces). texuniform keeps a pattern the same size on every
+         shape it lands on: one tile is 2/texrepeat metres across, so
+         texrepeat="2 2" is a one-metre tile. container_wall.png is grey and
+         each container tints it with its own rgba. -->
+    <texture type="2d" name="quay" file="quay_concrete.png"/>
+    <material name="quay" texture="quay" texuniform="true" texrepeat="2 2"/>
+    <texture type="2d" name="water" file="water.png"/>
+    <material name="water" texture="water" texuniform="true" texrepeat="0.5 0.5"
+              specular="0.5" shininess="0.5" reflectance="0"/>
+    <texture type="2d" name="crate" file="crate.png"/>
+    <material name="crate" texture="crate" texuniform="true" texrepeat="4 4"/>
+    <texture type="2d" name="container_wall" file="container_wall.png"/>
+    <material name="container_red" texture="container_wall" texuniform="true"
+              texrepeat="2 2" rgba="0.62 0.19 0.15 1"/>
+    <material name="container_blue" texture="container_wall" texuniform="true"
+              texrepeat="2 2" rgba="0.17 0.31 0.53 1"/>
+    <material name="container_green" texture="container_wall" texuniform="true"
+              texrepeat="2 2" rgba="0.16 0.40 0.27 1"/>
+    <!-- plain colours for the ironwork and the distant silhouettes -->
+    <material name="quay_dark" rgba="0.26 0.26 0.28 1"/>
+    <material name="bollard" rgba="0.13 0.14 0.15 1"/>
+    <material name="rope" rgba="0.72 0.60 0.40 1"/>
+    <material name="hull" rgba="0.45 0.11 0.10 1"/>
+    <material name="cabin" rgba="0.85 0.85 0.82 1"/>
+    <material name="crane_steel" rgba="0.85 0.68 0.10 1"/>
   </asset>
 
   <worldbody>
@@ -152,6 +194,148 @@
             material="prop_dark" contype="0" conaffinity="0" group="2"/>
       <geom name="prop_person_shoe_r" type="box" size="0.11 0.05 0.03" pos="0.04 -0.10 0.03"
             material="prop_dark" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <!-- The quay surface. Visual only and 6 mm thin, laid 4 mm into the floor
+         so its top face is 2 mm up: it hides the checkerboard, and the feet
+         still land on the training plane. It stops at y=4, where the water
+         starts, and runs to the horizon the other way (x -20..30, y -25..4),
+         so the checkerboard never shows at the edge of a picture. -->
+    <body name="dock_quay" pos="5 -10.5 0">
+      <geom name="dock_quay_slab" type="box" size="25 14.5 0.006" pos="0 0 -0.004"
+            material="quay" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <!-- The harbour basin on the +y side. High tide: the water sits level
+         with the quay, the same 2 mm sheet as the slab, because the training
+         floor is an infinite plane at z=0 and anything drawn below it is
+         hidden. Visual only; the robot never gets there, the kerb stops it
+         first. The wall is the quay's coping, a dark strip along the edge
+         that separates concrete from water in the picture. -->
+    <body name="dock_water" pos="5 29 0">
+      <geom name="dock_water_surface" type="box" size="40 25 0.006" pos="0 0 -0.004"
+            material="water" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <body name="dock_wall" pos="5 4.0 0">
+      <geom name="dock_wall_face" type="box" size="25 0.06 0.04" pos="0 0 0.04"
+            material="quay_dark" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <!-- The kerb along the water's edge: solid, so the robot bumps into it
+         instead of walking off, and 0.12 m tall: high enough for the depth
+         camera and Nav2's costmap to see the edge as an obstacle, low enough
+         for the lens at 0.21 m to see the water beyond it. It keeps 0.98 m
+         clear of the stop sign's plate, which reaches y=2.77. -->
+    <body name="dock_kerb" pos="5 3.85 0">
+      <geom name="dock_kerb_rail" type="box" size="25 0.10 0.06" pos="0 0 0.06"
+            material="quay_dark" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <!-- Mooring bollards every four metres along the edge, just inside the
+         kerb. The post is solid; the cap and the rope drooping over the edge
+         into the water are trimmings. -->
+    <body name="dock_bollard_1" pos="-3 3.6 0">
+      <geom name="dock_bollard_1_post" type="cylinder" size="0.09 0.22" pos="0 0 0.22"
+            material="bollard" contype="1" conaffinity="15" group="2"/>
+      <geom name="dock_bollard_1_cap" type="sphere" size="0.105" pos="0 0 0.44"
+            material="bollard" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_bollard_1_rope" type="capsule" size="0.022"
+            fromto="0 0.06 0.42 0 0.78 0.02"
+            material="rope" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <body name="dock_bollard_2" pos="1 3.6 0">
+      <geom name="dock_bollard_2_post" type="cylinder" size="0.09 0.22" pos="0 0 0.22"
+            material="bollard" contype="1" conaffinity="15" group="2"/>
+      <geom name="dock_bollard_2_cap" type="sphere" size="0.105" pos="0 0 0.44"
+            material="bollard" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_bollard_2_rope" type="capsule" size="0.022"
+            fromto="0 0.06 0.42 0 0.78 0.02"
+            material="rope" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <body name="dock_bollard_3" pos="5 3.6 0">
+      <geom name="dock_bollard_3_post" type="cylinder" size="0.09 0.22" pos="0 0 0.22"
+            material="bollard" contype="1" conaffinity="15" group="2"/>
+      <geom name="dock_bollard_3_cap" type="sphere" size="0.105" pos="0 0 0.44"
+            material="bollard" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_bollard_3_rope" type="capsule" size="0.022"
+            fromto="0 0.06 0.42 0 0.78 0.02"
+            material="rope" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <body name="dock_bollard_4" pos="9 3.6 0">
+      <geom name="dock_bollard_4_post" type="cylinder" size="0.09 0.22" pos="0 0 0.22"
+            material="bollard" contype="1" conaffinity="15" group="2"/>
+      <geom name="dock_bollard_4_cap" type="sphere" size="0.105" pos="0 0 0.44"
+            material="bollard" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_bollard_4_rope" type="capsule" size="0.022"
+            fromto="0 0.06 0.42 0 0.78 0.02"
+            material="rope" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <!-- A row of shipping containers on the -y side, away from the water.
+         y=-6.0 keeps their near face 1.7 m clear of the traffic light at
+         (0.90, -3.10) and leaves the corridor from the spawn past the hydrant
+         wide open. The blue one is a few degrees off square, which is what
+         stops the row from reading as one long wall. The green one is stacked
+         on the red one. -->
+    <body name="dock_container_1" pos="2 -6.0 0">
+      <geom name="dock_container_1_box" type="box" size="3 1.2 1.3" pos="0 0 1.3"
+            material="container_red" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <body name="dock_container_2" pos="8.65 -6.0 0" euler="0 0 0.1047">
+      <geom name="dock_container_2_box" type="box" size="3 1.2 1.3" pos="0 0 1.3"
+            material="container_blue" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <body name="dock_container_3" pos="2 -6.0 0">
+      <geom name="dock_container_3_box" type="box" size="3 1.2 1.3" pos="0 0 3.9"
+            material="container_green" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <!-- Wooden crates: two stacked where the robot can walk round them, one
+         on its own further back. Both spots are more than 1.2 m from every
+         prop and off the straight lines from the spawn to the ball and to
+         the hydrant. -->
+    <body name="dock_crate_1" pos="4.2 1.6 0">
+      <geom name="dock_crate_1_box" type="box" size="0.3 0.3 0.3" pos="0 0 0.3"
+            material="crate" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <body name="dock_crate_2" pos="4.2 1.6 0">
+      <geom name="dock_crate_2_box" type="box" size="0.3 0.3 0.3" pos="0 0 0.9"
+            material="crate" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <body name="dock_crate_3" pos="-1.6 -2.2 0">
+      <geom name="dock_crate_3_box" type="box" size="0.3 0.3 0.3" pos="0 0 0.3"
+            material="crate" contype="1" conaffinity="15" group="2"/>
+    </body>
+
+    <!-- A fishing boat moored alongside, its hull sitting on the water
+         sheet, a metre and a half out from the edge. Visual only. -->
+    <body name="dock_boat" pos="4 6.2 0">
+      <geom name="dock_boat_hull" type="box" size="2.25 0.8 0.35" pos="0 0 0.35"
+            material="hull" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_boat_cabin" type="box" size="0.55 0.6 0.4" pos="-0.7 0 1.1"
+            material="cabin" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_boat_mast" type="cylinder" size="0.04 1.1" pos="0.7 0 1.8"
+            material="bollard" contype="0" conaffinity="0" group="2"/>
+    </body>
+
+    <!-- A gantry crane on the skyline, straddling the far end of the quay.
+         Three boxes at x=18: tall enough to read as a harbour from the deck
+         panel's picture, far enough away to cost nothing. Visual only. -->
+    <body name="dock_crane" pos="18 0 0">
+      <geom name="dock_crane_leg_l" type="box" size="0.15 0.15 4.5" pos="0 3 4.5"
+            material="crane_steel" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_crane_leg_r" type="box" size="0.15 0.15 4.5" pos="0 -3 4.5"
+            material="crane_steel" contype="0" conaffinity="0" group="2"/>
+      <geom name="dock_crane_beam" type="box" size="0.3 3.3 0.3" pos="0 0 9.3"
+            material="crane_steel" contype="0" conaffinity="0" group="2"/>
     </body>
   </worldbody>
 </mujoco>
