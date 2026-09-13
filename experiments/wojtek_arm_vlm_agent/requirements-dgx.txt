@@ -1,0 +1,8 @@
+# GPU host (inference): tracker.py + commander.py
+# Install a CUDA build of torch for your platform first, e.g.
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+ultralytics>=8.3
+opencv-python-headless>=4.9
+numpy
+lap
+anthropic>=1.0   # only for the optional Claude backend of the standing rule
