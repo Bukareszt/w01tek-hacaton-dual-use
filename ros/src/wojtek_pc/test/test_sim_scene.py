@@ -64,9 +64,9 @@ ACTOR_POS = {
     "actor_worker_3": (8.0, -2.4),
     "actor_intruder_1": (9.5, 2.6),
     "actor_intruder_2": (6.0, -4.2),
-    "actor_drone_1": (7.8, 1.1, 1.9),
-    "actor_drone_2": (10.0, 2.8, 2.5),
-    "actor_drone_3": (7.3, -3.2, 1.65),
+    "actor_drone_1": (7.8, 1.1, 1.55),
+    "actor_drone_2": (10.0, 2.8, 2.05),
+    "actor_drone_3": (7.3, -3.2, 1.3),
 }
 # The harbour around them. Solid is what the robot can walk into; visual is
 # the view, and it has to stay out of the collision world.

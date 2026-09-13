@@ -93,7 +93,7 @@ be there, and drones overhead. The dock is scenery around them.
 | --- | -------------------- | ------------------------------- |
 | 3 dock workers, orange hi-vis and helmet | ahead 6.5 m; 7.1 m at ~29° left; 8.4 m at ~17° right | `person` |
 | 2 unauthorized people, dark clothes, no helmet | 9.8 m at ~15° left; 7.3 m at ~35° right | `person` |
-| 3 drones, 1.65 to 2.5 m up | 7.9 m at ~8° left; 10.4 m at ~16° left; 8 m at ~24° right | `airplane`, `bird`, `kite` — or nothing |
+| 3 drones, 1.3 to 2.05 m up | 7.9 m at ~8° left; 10.4 m at ~16° left; 8 m at ~24° right | `airplane`, `bird`, `kite` — or nothing |
 
 That third column is the point of the cast, and it is not a bug. The panel runs
 YOLOX-nano over COCO's 80 classes, and COCO has no `helmet`, no `vest` and no
