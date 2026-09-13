@@ -34,6 +34,11 @@
   --on-image-2: rgba(255, 255, 255, .72);
   --on-image-3: rgba(255, 255, 255, .55);
   --accent-image: var(--red-soft);
+  /* two more for the detection boxes only: a triaged box says worker,
+     unknown or drone, and three states cannot be told apart in white
+     and one red. Both are picked to read on a photograph. */
+  --ok-image: rgba(110, 210, 120, .95);
+  --warn-image: rgba(255, 190, 60, .95);
   /* hairlines, and the one ink scrim every group sits on -- both flat */
   --line-image: rgba(255, 255, 255, .26);
   --line-image-2: rgba(255, 255, 255, .14);
