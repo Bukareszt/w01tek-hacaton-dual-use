@@ -63,6 +63,7 @@ stays with viz.launch.py in a simulation, so leave foxglove:= alone unless
 nothing else holds port 8765.
 """
 
+import json
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -129,6 +130,31 @@ def generate_launch_description():
                     "color_hz": ParameterValue(
                         LaunchConfiguration("camera_color_hz"), value_type=float
                     ),
+                }
+            ],
+        ),
+        # The deck panel's "intercept" button: a scripted walk to the nearest
+        # of the cast's intruders, on the plant's ground truth. Simulation
+        # only, like the camera above; the physical robot has no /sim/qpos.
+        Node(
+            package="wojtek_pc",
+            executable="sim_approach",
+            arguments=["--serve"],
+            output="screen",
+            condition=IfCondition(
+                PythonExpression([
+                    "'", LaunchConfiguration("hw"), "' == 'mujoco'",
+                ])
+            ),
+            parameters=[
+                {
+                    # The intruders of config/scene_sim.xml, by name.
+                    "targets": json.dumps([
+                        {"name": "intruder_1", "x": 9.5, "y": 2.6},
+                        {"name": "intruder_2", "x": 6.0, "y": -4.2},
+                    ]),
+                    "standoff": 3.5,
+                    "speed": 0.4,
                 }
             ],
         ),

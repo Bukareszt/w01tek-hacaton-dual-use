@@ -283,6 +283,8 @@ button.hold.holding {
 }
 /* Armed: the red fill. */
 button.armed { background: var(--red); border-color: var(--red); color: #fff; min-width: 100px; }
+/* the one button that sends the robot somewhere on its own */
+button.alert:not(:disabled) { border-color: var(--red); color: var(--red-soft); }
 button.armed:hover:not(:disabled) { background: var(--red-deep); border-color: var(--red-deep); color: #fff; }
 
 /* The panel is drawn for the handheld's 1280 wide screen. On anything
