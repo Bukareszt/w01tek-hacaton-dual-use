@@ -71,15 +71,24 @@ firewall does have to accept the robot host on the tracker and commander ports
 
 ## Setup
 
-Robot host (Raspberry Pi 4/5, 64-bit OS):
+Robot host (Raspberry Pi 4/5, 64-bit OS). The follower does **not** need LeRobot or
+torch at runtime: `feetech_bus.py` talks to the servos through `feetech-servo-sdk`
+(pyserial only) and reads LeRobot's calibration JSON, with LeRobot's exact unit
+conventions (verified against `FeetechMotorsBus` on the same calibration: identical
+degrees, identical sign-magnitude register encoding).
 
 ```bash
 python3 -m venv ~/wojtek-arm && . ~/wojtek-arm/bin/activate
-pip install -r experiments/wojtek_arm_vlm_agent/requirements-rpi.txt
-# user in the `video` and `dialout` groups; calibrate the arm once with LeRobot
-# (`lerobot-calibrate --robot.type=so101_follower --robot.id=so101`), which writes
-# ~/.cache/huggingface/lerobot/calibration/robots/so_follower/so101.json
+pip install -r experiments/wojtek_arm_vlm_agent/requirements-rpi.txt   # seconds, no torch
+# user in the `video` and `dialout` groups
 ```
+
+Calibrate the arm once with LeRobot on any machine
+(`lerobot-calibrate --robot.type=so101_follower --robot.id=so101`) and copy the
+resulting `~/.cache/huggingface/lerobot/calibration/robots/so_follower/so101.json`
+to the same path on the robot host, or point `WOJTEK_ARM_CALIBRATION` at it. The
+follower refuses to start if the servos' limit and homing registers do not match
+the file, exactly like LeRobot.
 
 Inference host (CUDA GPU, Ollama with the vision model pulled):
 
@@ -179,6 +188,7 @@ or `{"dpan","dtilt"}` or `{"posture": true|"save"}`; `GET /crop/<id>`,
 ```
 camera_stream.py       robot host: MJPG passthrough streamer + optional push
 arm_follower.py        robot host: SO-101 controller (absolute-goal servo, goto mode, status :8094)
+feetech_bus.py         torch-free Feetech STS3215 bus with LeRobot calibration/units
 tracker.py             inference host: YOLO11 + ByteTrack, /frame + /tracks (:8093)
 commander.py           inference host: VLM agent, sequencer, overlay, UI (:8100)
 stream_relay.py        laptop: receives pushed frames, serves MJPEG locally

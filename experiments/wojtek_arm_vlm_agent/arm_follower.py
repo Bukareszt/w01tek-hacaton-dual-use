@@ -29,8 +29,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import urlopen
 
 import numpy as np
-from lerobot.motors import MotorNormMode
-from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
+
+try:
+    from feetech_bus import FeetechBus
+except ImportError:  # running from another directory
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from feetech_bus import FeetechBus
 
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 PAN, TILT, LIFT, ELBOW = "shoulder_pan", "wrist_flex", "shoulder_lift", "elbow_flex"
@@ -166,11 +171,11 @@ def norm_error(track, w, h, edge_push=0.35, aim_frac=0.4):
 
 
 class Arm:
-    def __init__(self, port, execute):
+    def __init__(self, port, execute, calibration=None):
         self.execute = execute
-        self.robot = SOFollower(SOFollowerRobotConfig(port=port, id="so101", use_degrees=True))
-        self.bus = self.robot.bus
-        self.bus.motors["gripper"].norm_mode = MotorNormMode.DEGREES
+        self.port = port
+        self.bus = FeetechBus(port, calibration)          # torch-free; LeRobot calibration file + units
+        self.calibration = self.bus.calibration
         self.enabled = False
         self.half_range = {}
 
@@ -178,7 +183,7 @@ class Arm:
         self.bus.connect()
         if not self.bus.is_calibrated:
             raise RuntimeError("Stored calibration does not match motors")
-        for name, cal in self.robot.calibration.items():
+        for name, cal in self.calibration.items():
             self.half_range[name] = (cal.range_max - cal.range_min) * 360 / 4095 / 2
         set_state(limits={"pan": round(self.half_range[PAN], 1), "tilt": round(self.half_range[TILT], 1),
                           "lift": round(self.half_range[LIFT], 1)})
@@ -189,7 +194,7 @@ class Arm:
             if any(self.bus.sync_read("Torque_Enable", normalize=False).values()):
                 # Torque left on (e.g. previous controller was SIGKILLed). Only refuse if
                 # some other process really holds the serial port.
-                others = port_users(self.robot.config.port)
+                others = port_users(self.port)
                 if others:
                     raise RuntimeError(f"Arm already powered and port held by pids {others}")
                 print("warning: torque was already on with no other controller; taking over", flush=True)
@@ -301,6 +306,8 @@ def main():
     ap.add_argument("--tracker", default="http://127.0.0.1:8093")
     ap.add_argument("--port", default=os.environ.get("WOJTEK_ARM_SERIAL", "/dev/ttyACM0"),
                     help="SO-101 serial device (env WOJTEK_ARM_SERIAL; prefer a /dev/serial/by-id path)")
+    ap.add_argument("--calibration", default=None,
+                    help="LeRobot calibration JSON (default: env WOJTEK_ARM_CALIBRATION or LeRobot's so101.json)")
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=480)
     ap.add_argument("--hz", type=float, default=50, help="control loop rate (polls the tracker; acts on new frames)")
@@ -366,7 +373,7 @@ def main():
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    arm = Arm(a.port, a.execute)
+    arm = Arm(a.port, a.execute, a.calibration)
     arm.connect()
     if a.execute:
         arm.set_servo_smoothing(a.servo_accel, a.servo_p)
