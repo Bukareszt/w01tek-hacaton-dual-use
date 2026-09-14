@@ -1,0 +1,12 @@
+# Bench test and calibration only: point the gimbal somewhere by hand.
+#
+# Refused unless tracking is disabled. Two things commanding the same two
+# servos is how a calibration session ends up fighting the detector.
+
+float32 pan_deg
+float32 tilt_deg
+---
+bool success
+# Why it was refused, when it was -- out of limits, tracking still enabled,
+# or the bus is faulted.
+string message

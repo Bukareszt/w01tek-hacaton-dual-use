@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wojtek_targeting</name>
+  <version>0.1.0</version>
+  <description>
+    The targeting gimbal of the wojtek_targeting experiment: a DynamixelSDK
+    driver for the XM540 pan / XM430 tilt pair behind a U2D2, and the
+    controller that turns detections into bounded pan/tilt commands.
+
+    This package is the only thing that commands those two servos. It has no
+    laser control in it, by design: the laser is armed by hardware outside
+    this graph.
+
+    Nothing here touches the walking stack -- not ros2_control, not the MD80
+    interface, not the 400 Hz loop, not arming.
+  </description>
+  <maintainer email="kubastaudt@gmail.com">Jakub Staudt</maintainer>
+  <license>Apache License 2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>wojtek_targeting_msgs</depend>
+  <!-- ROBOTIS' own SDK. Packaged for Jazzy as ros-jazzy-dynamixel-sdk; the
+       pip package of the same name is a different, older thing. -->
+  <depend>dynamixel_sdk</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,57 @@
+# Targeting camera settings: a plain USB webcam on the RPi.
+#
+# `/**` rather than the node's path so the file keeps working whatever
+# name/namespace the launch gives the node.
+#
+# The whole file is about one thing: getting a frame to YOLO soon after the
+# photons arrived, without spending RPi budget the walking stack needs. There
+# is no depth here and no post-processing -- if the aiming path ever needs
+# range, that is a conversation about bbox size or a fixed demo distance
+# (still an open decision in the brief), not about adding streams here.
+
+/**:
+  ros__parameters:
+    # Stable by-id path rather than /dev/videoN: the plain number is not
+    # guaranteed across reboots once anything else enumerates first, and this
+    # unit is being moved from a dev box to the robot's RPi, where whatever
+    # else is on the USB bus is not yet known. This is the generic UVC webcam
+    # (vendor:product 10bb:2b08, "Generic_USB_Camera", serial EP.20CC54K01)
+    # chosen in the README -- if that physical unit is ever swapped, get the
+    # new by-id string from `ls /dev/v4l/by-id/` on whatever it's plugged
+    # into and paste it here.
+    device: "/dev/v4l/by-id/usb-Generic_USB_Camera_EP.20CC54K01-video-index0"
+
+    # 640x480 is what a detector downscales to anyway, and it is the geometry
+    # most cheap webcams actually hit 30 fps at. Going higher costs USB
+    # bandwidth on a bus already carrying the terrain camera and buys YOLO
+    # nothing.
+    image_width: 640
+    image_height: 480
+    framerate: 30.0
+
+    # MJPG, not the YUYV default. Uncompressed 640x480 at 30 fps is ~55 MB/s,
+    # which does not fit USB2 -- the camera will quietly renegotiate down to
+    # ~10 fps rather than report an error. Set to "" to leave the format alone
+    # if a particular camera misbehaves with MJPG.
+    fourcc: "MJPG"
+
+    # Intrinsics. Zero means "not calibrated", and the node says so at startup.
+    # targeting_controller converts a bbox offset into a pan/tilt angle, which
+    # needs a focal length -- until these are real, it refuses to track at all.
+    # Get them from `ros2 run camera_calibration cameracalibrator` with a
+    # checkerboard, then paste the results here.
+    # cx/cy default to the image centre when left at 0, which is close enough
+    # to true for most webcams that it is a reasonable placeholder; fx/fy have
+    # no such sane default.
+    fx: 0.0
+    fy: 0.0
+    cx: 0.0
+    cy: 0.0
+    # Written out rather than left empty: an empty list has no inferable type,
+    # and both rclpy and the parameter-file loader reject it.
+    distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # No TF is published: nothing in the targeting graph transforms between
+    # this frame and the robot body, and the terrain camera already owns the
+    # body-relative extrinsics.
+    frame_id: "targeting_camera_optical_frame"
