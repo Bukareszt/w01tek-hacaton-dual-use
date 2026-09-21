@@ -32,6 +32,7 @@ setup(
             "console = wojtek_pc.operator_console:main",
             "web_console = wojtek_pc.web_console:main",
             "sysid_excitation = wojtek_pc.sysid_excitation_node:main",
+            "sim_approach = wojtek_pc.sim_approach:main",
         ],
     },
 )

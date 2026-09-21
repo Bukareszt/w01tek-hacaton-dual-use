@@ -289,9 +289,16 @@ def _launch_setup(context, with_rviz, hardware):
     # its own, bigger receive buffer, appended to whatever Cyclone config
     # the process already has (the robot's pins its interfaces there).
     cyclone_base = os.environ.get("CYCLONEDDS_URI", "")
+    # `max`, not `min`: min is a hard floor and Cyclone refuses to create the
+    # node when the kernel cannot give it, which is what a Docker VM on a
+    # Mac does (no net.core.rmem_max to raise), and the gateway then dies
+    # at startup in every ./ros/sim.sh session. max asks for 8 MB and takes
+    # what the kernel allows. The robot's deploy raises the kernel limit
+    # (ros/deploy/rpi/60-wojtek-dds-buffers.conf), so there it still gets
+    # the whole 8 MB.
     cyclone_uri = (cyclone_base + "," if cyclone_base else "") + (
         "<CycloneDDS><Domain><Internal>"
-        '<SocketReceiveBufferSize min="8MB"/>'
+        '<SocketReceiveBufferSize max="8MB"/>'
         "</Internal></Domain></CycloneDDS>"
     )
     nodes.append(
@@ -317,6 +324,12 @@ def _launch_setup(context, with_rviz, hardware):
                     "stream_hz": ParameterValue(
                         LaunchConfiguration("deck_stream_hz"), value_type=float
                     ),
+                    # The robot's camera node publishes its own JPEG and the
+                    # gateway relays it. The simulated camera publishes raw
+                    # frames only, so there the gateway encodes them itself;
+                    # left at the default it subscribes to a topic nobody
+                    # publishes and the panel's picture stays dark.
+                    "compressed": hardware == "real",
                 }
             ],
         )
