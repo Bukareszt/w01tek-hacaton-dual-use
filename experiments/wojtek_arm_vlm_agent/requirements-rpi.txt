@@ -1,0 +1,7 @@
+# Robot host (Raspberry Pi): camera_stream.py + arm_follower.py. No torch, no lerobot at runtime;
+# the follower talks to the SO-101 through feetech-servo-sdk and reads LeRobot's calibration JSON
+# (produce it once with LeRobot's calibration tool on any machine and copy it over).
+opencv-python-headless>=4.9
+numpy
+pyserial
+feetech-servo-sdk>=1.0
