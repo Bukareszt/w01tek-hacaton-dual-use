@@ -1,0 +1,24 @@
+# @package _global_
+# QUIET WALKING, iteration 16 (2026-09-12): raise the landing charge, one
+# knob. Every night arm kept feet_landing at the keeper's operating point
+# (-15, spins paying 60% via feet_landing_wz_floor 0.6) because the
+# recorded lesson was that more landing pressure turns slow commands into
+# skating (floor 0.75 in the August grid: quietest spins ever, slow walk
+# SKATES). slip_cmd (v12/v15) closes that escape -- straight_slow went
+# 0.29 -> 1.14 -- so the landing charge has room to rise for the first
+# time. Floor 0.6 -> 0.75: spins pay 75% of the charge.
+# Gate: report impact proxy and battery vibration down vs v15; slow 0.25
+# still steps (duty < 1.0, straight_slow not down past seed noise);
+# spins keep wz >= 0.8; courses table within the v11 gate.
+# Usage:
+#   ./training/run.sh train +experiment=flat_quiet_v16_landing seed=0 \
+#     restore=runs/wojtek_flat_quiet_v15_from_control_s0/checkpoints/<final>
+defaults:
+  - flat_quiet_v12_slip_cmd
+
+task:
+  env:
+    reward:
+      feet_landing_wz_floor: 0.75
+
+run_name: wojtek_flat_quiet_v16_landing

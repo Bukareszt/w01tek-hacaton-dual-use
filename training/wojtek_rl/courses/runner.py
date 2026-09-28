@@ -149,7 +149,7 @@ def run_courses(
         results["seam"] = run["seam"]
 
     def friction_key(n):
-        f = getattr(catalogue[n], "friction", None)  # SpinCourse has none
+        f = getattr(catalogue[n], "friction", None)  # None = model's own
         return -1.0 if f is None else f  # explicit: `or` would misread mu=0.0
 
     # Group by friction so the jitted step is rebuilt once per distinct
@@ -233,9 +233,13 @@ def run_courses(
             write_path_plot(out_dir / f"{name}_path.png", course, course_path, trails)
         print(_row(name, entry), flush=True)
 
-    # Restore the model so a caller reusing `env` is not left on a slippery
-    # floor (run_courses mutates it in place, as battery's alpha path does).
+    # Restore the model so a caller reusing `env` is not left on the last
+    # group's floor (run_courses mutates it in place, as battery's alpha
+    # path does). Both halves: the mj_model values and the device model
+    # the env steps with; `reset`/`step` above were locals and die here.
     env.mj_model.geom_friction[fric_geoms, 0] = base_friction
+    if current is not None:
+        env._mjx_model = mjx.put_model(env.mj_model, impl=env._backend)
     # Scenarios ran grouped by friction; report them in catalogue order so
     # the table reads geometry -> speed -> floor -> disturbance.
     results["courses"] = {

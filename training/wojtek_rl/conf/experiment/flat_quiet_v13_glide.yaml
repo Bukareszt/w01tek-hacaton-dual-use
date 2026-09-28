@@ -1,0 +1,28 @@
+# @package _global_
+# QUIET WALKING, iteration 13 (2026-09-12): see the approach earlier, one
+# knob. feet_landing prices downward foot speed only inside glide_height
+# of the floor (3 cm, ~5 control steps at the speeds it charges). The
+# robot still strikes the floor rather than placing the foot, and the
+# sim2real gap (actuator lag, latency) eats part of a 3 cm band: by the
+# time the real foot enters it the strike is committed. 5 cm gives the
+# charge the whole approach, so the policy has to decelerate the foot
+# where the real plant can still act on it. Scale, fade and floor stay
+# at the keeper's values; only the band widens.
+# Gate: report's foot-force proxy (peak base accel) and az_p99 down vs
+# the parent; spin wz still >= 0.8 (the landing charge is what erodes
+# spins); slow 0.25 still steps; courses table within the v11 gate.
+# Runs as its own arm off v11 (not stacked on v12), so the glide band is
+# the only difference from its parent; a combined arm comes after both
+# have been judged.
+# Usage:
+#   ./training/run.sh train +experiment=flat_quiet_v13_glide seed=0 \
+#     restore=runs/wojtek_flat_quiet_v11_sticky_dr_s0/checkpoints/<final>
+defaults:
+  - flat_quiet_v11_sticky_dr
+
+task:
+  env:
+    reward:
+      glide_height: 0.05
+
+run_name: wojtek_flat_quiet_v13_glide

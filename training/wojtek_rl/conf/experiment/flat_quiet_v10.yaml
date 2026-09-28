@@ -1,0 +1,33 @@
+# @package _global_
+# QUIET WALKING, iteration 10 (2026-08-12): the quiet family's KEEPER
+# (HF wojtek-quiet-locomotion @553795b, run wojtek_flat_quiet_v10_s0).
+# RECORD, reconstructed 2026-09-12 from the keeper's QUIET-REPORT and
+# README: the run was launched as CLI overrides on the v6 recipe, and the
+# preset was never committed. The recipe: keeper-curriculum restore from
+# the sag_v3 keeper + feet_landing -15 with the near-binary spin fade
+# (v4) + energy_cmd 1.0 (v5) + spins paying 60% of the landing charge
+# (floor 0.6; v6 used 0.35) + tracking_ang_vel 2.4, which buys the spin
+# rate back that the higher floor sells (v9b showed 3.2 overshoots into
+# slow-walk skating; v11 showed floor 0.75 breaks slow stepping).
+# Result: courses 20/20, 0 falls/160 incl. the slippery circle 8/8, step-
+# turn spins (0% flight) at wz 0.90/-0.88, td_p90 0.28/0.34 in a spin.
+# Plant: kp20/kd0.5/12 Nm, tau_ff +-3 (inherited from flat_tff_rnd_v1).
+# Budget: 1B fine-tune (v6's 2B is the from-scratch budget; restore
+# makes this a phase-B run).
+# Usage:
+#   ./training/run.sh train +experiment=flat_quiet_v10 seed=0 \
+#     restore=runs/wojtek_flat_tff_sag_v3_s1b/checkpoints/<final>
+defaults:
+  - flat_quiet_v6
+
+task:
+  env:
+    reward:
+      feet_landing_wz_floor: 0.6
+      scales:
+        tracking_ang_vel: 2.4
+
+ppo:
+  num_timesteps: 1000000000
+
+run_name: wojtek_flat_quiet_v10

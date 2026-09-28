@@ -11,6 +11,13 @@ import numpy as np
 
 NOMINAL_SPEED = 0.5  # m/s, every course unless the scenario IS about speed
 SLIPPERY_FRICTION = 0.4  # sliding friction for the slippery rows
+# Sliding friction for the sticky rows. 1.5 is the realistic ceiling for a
+# rubber foot on rough concrete or carpet; 2.5 is a stress level past
+# anything physical, to separate "mu too high" from "the gait itself
+# cannot work without sliding" (a skating gait fails at both, a stepping
+# gait at neither).
+STICKY_FRICTION = 1.5
+STICKY_FRICTION_HI = 2.5
 PUSH_VEL = 0.6  # m/s lateral impulse added to base qvel, push rows
 
 HEIGHT_CMD = 0.125  # the anchor battery.py pins every scenario at
@@ -63,6 +70,10 @@ class SpinCourse:
     isolates: str
     wz: float  # rad/s, signed: + spins left (CCW)
     turns: float = 1.0  # full rotations required for completion
+    # Same contract as Course.friction: overrides the contact sliding
+    # friction, None = the model's own value. A pivot is the motion high
+    # friction hurts most, so the floor family has a sticky spin row.
+    friction: float | None = None
 
 
 Scenario = Course | SpinCourse

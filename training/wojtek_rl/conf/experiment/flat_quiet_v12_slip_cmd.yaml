@@ -1,0 +1,28 @@
+# @package _global_
+# QUIET WALKING, iteration 12 (2026-09-12): price sliding, one knob.
+# The quiet family's recorded metric hole: feet_landing prices the
+# touchdown but sliding is only priced by the flat feet_slip -0.35, and
+# the family learned to shuffle at slow commands (v1/v2 skated outright;
+# the keeper curriculum only made it step). A shuffle is exactly what
+# breaks on carpet and rough concrete, where the foot cannot slide.
+# slip_cmd is the speed-scaled construction the RMA preset uses: an
+# exp-shaped income for keeping stance feet planted, normalized by the
+# commanded speed so slow careful gaits are not over-charged (the
+# recorded fix for the feet_slip collapse -- a flat -1.0 froze motion).
+# Same gates as energy_cmd (tracking kernels), so ignoring the command
+# cannot collect it. feet_slip stays at the keeper's -0.35.
+# Gate as v11, plus: battery slow 0.25 duty must fall (feet lift more),
+# the courses grip sub-score should rise on the geometry rows.
+# Usage:
+#   ./training/run.sh train +experiment=flat_quiet_v12_slip_cmd seed=0 \
+#     restore=runs/<best so far>/checkpoints/<final>
+defaults:
+  - flat_quiet_v11_sticky_dr
+
+task:
+  env:
+    reward:
+      scales:
+        slip_cmd: 1.0
+
+run_name: wojtek_flat_quiet_v12_slip_cmd
